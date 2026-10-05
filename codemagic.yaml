@@ -4,8 +4,6 @@ workflows:
     max_build_duration: 60
     environment:
       flutter: stable
-      groups:
-        - rts_tracking_play
       android_signing:
         - rts_tracking_keystore
     scripts:
@@ -15,10 +13,6 @@ workflows:
         script: flutter build appbundle --release
     artifacts:
       - build/app/outputs/bundle/release/*.aab
-    publishing:
-      google_play:
-        credentials: $GCLOUD_SERVICE_ACCOUNT_CREDENTIALS
-        track: internal
 
   rts_tracking_ios:
     name: RTS Tracking iOS
@@ -27,8 +21,6 @@ workflows:
       app_store_connect: CityLogisticsASC
     environment:
       flutter: stable
-      groups:
-        - rts_tracking_app_store
       ios_signing:
         distribution_type: app_store
         bundle_identifier: com.rts.tracking
