@@ -32,7 +32,7 @@ workflows:
       - name: Apply iOS signing profiles
         script: xcode-project use-profiles
       - name: Build signed IPA
-        script: flutter build ipa --release
+        script: xcode-project build-ipa --workspace ios/Runner.xcworkspace --scheme Runner
     artifacts:
       - build/ios/ipa/*.ipa
     publishing:
