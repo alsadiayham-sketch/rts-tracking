@@ -22,8 +22,10 @@ workflows:
     environment:
       flutter: stable
       ios_signing:
-        distribution_type: app_store
-        bundle_identifier: com.rts.tracking
+        provisioning_profiles:
+          - rts_tracking_app_store_codmagic
+        certificates:
+          - rts_tracking_distribution
     scripts:
       - name: Install packages
         script: flutter pub get
