@@ -23,6 +23,8 @@ workflows:
   rts_tracking_ios:
     name: RTS Tracking iOS
     max_build_duration: 60
+    integrations:
+      app_store_connect: CityLogisticsASC
     environment:
       flutter: stable
       groups:
