@@ -1,80 +1,71 @@
-import 'dart:async';
-import 'dart:convert';
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 
+import 'tracking_data.dart';
+
 void main() {
-  runApp(const RtsTrackingApp());
+  const configuredBaseUrl = String.fromEnvironment('RTS_API_BASE_URL');
+  final baseUrl = configuredBaseUrl.isEmpty
+      ? null
+      : Uri.tryParse(configuredBaseUrl);
+  runApp(RtsTrackingApp(api: OwnerApi(baseUrl: baseUrl)));
 }
 
 class RtsTrackingApp extends StatelessWidget {
-  const RtsTrackingApp({super.key});
+  const RtsTrackingApp({super.key, this.api});
+
+  final OwnerApi? api;
 
   @override
   Widget build(BuildContext context) {
-    const purple = Color(0xFF48115B);
+    const seed = Color(0xFF48115B);
     return MaterialApp(
       title: 'RTS Tracking',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: purple),
-        scaffoldBackgroundColor: const Color(0xFFF8F6F9),
-        useMaterial3: true,
-        fontFamily: 'Arial',
+      themeMode: ThemeMode.system,
+      theme: _theme(Brightness.light, seed),
+      darkTheme: _theme(Brightness.dark, seed),
+      home: TrackingHome(api: api ?? OwnerApi()),
+    );
+  }
+
+  ThemeData _theme(Brightness brightness, Color seed) {
+    final colorScheme = ColorScheme.fromSeed(
+      seedColor: seed,
+      brightness: brightness,
+    );
+    return ThemeData(
+      colorScheme: colorScheme,
+      scaffoldBackgroundColor: colorScheme.surface,
+      useMaterial3: true,
+      fontFamily: 'Arial',
+      cardTheme: CardThemeData(
+        elevation: 0,
+        color: colorScheme.surfaceContainerLow,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
       ),
-      home: const TrackingHome(),
+      inputDecorationTheme: InputDecorationTheme(
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+      ),
     );
   }
 }
 
-enum TrackingMode { business, clinic }
-
-class OwnerApi {
-  OwnerApi({this.baseUrl});
-
-  final Uri? baseUrl;
-
-  Future<Map<String, dynamic>> getDashboard() async {
-    if (baseUrl == null) return _demoDashboard();
-    final client = HttpClient();
-    try {
-      final request = await client.getUrl(baseUrl!.resolve('/owner/dashboard'));
-      request.headers.contentType = ContentType.json;
-      final response = await request.close();
-      if (response.statusCode < 200 || response.statusCode >= 300) {
-        throw HttpException('Dashboard request failed: ${response.statusCode}');
-      }
-      return jsonDecode(await response.transform(utf8.decoder).join())
-          as Map<String, dynamic>;
-    } finally {
-      client.close(force: true);
-    }
-  }
-
-  Map<String, dynamic> _demoDashboard() => {
-    'sites': 4,
-    'online': 3,
-    'alerts': 2,
-    'businessSales': '₪18,420',
-    'clinicAppointments': 27,
-    'clinicNoShows': 2,
-  };
-}
-
 class TrackingHome extends StatefulWidget {
-  const TrackingHome({super.key});
+  const TrackingHome({super.key, required this.api});
+
+  final OwnerApi api;
 
   @override
   State<TrackingHome> createState() => _TrackingHomeState();
 }
 
 class _TrackingHomeState extends State<TrackingHome> {
-  final OwnerApi api = OwnerApi();
   TrackingMode mode = TrackingMode.business;
   int selectedIndex = 0;
-  Map<String, dynamic> dashboard = {};
+  DashboardSnapshot? dashboard;
+  Object? error;
   bool loading = true;
+  bool refreshing = false;
 
   @override
   void initState() {
@@ -83,89 +74,128 @@ class _TrackingHomeState extends State<TrackingHome> {
   }
 
   Future<void> _refresh() async {
-    setState(() => loading = true);
-    final data = await api.getDashboard();
-    if (!mounted) return;
+    if (dashboard == null) {
+      setState(() {
+        loading = true;
+        error = null;
+      });
+    } else {
+      setState(() => refreshing = true);
+    }
+
+    try {
+      final data = await widget.api.getDashboard(mode);
+      if (!mounted) return;
+      setState(() {
+        dashboard = data;
+        error = null;
+      });
+    } catch (caughtError) {
+      if (!mounted) return;
+      setState(() => error = caughtError);
+      if (dashboard != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text(
+              'Could not refresh. Showing the last available data.',
+            ),
+            action: SnackBarAction(label: 'Retry', onPressed: _refresh),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          loading = false;
+          refreshing = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _selectMode(TrackingMode newMode) async {
+    if (newMode == mode) return;
     setState(() {
-      dashboard = data;
-      loading = false;
+      mode = newMode;
+      dashboard = null;
+      error = null;
     });
+    await _refresh();
   }
 
   @override
   Widget build(BuildContext context) {
-    final clinic = mode == TrackingMode.clinic;
     return Scaffold(
       appBar: AppBar(
-        backgroundColor: Colors.white,
-        title: Row(
+        titleSpacing: 16,
+        title: const Row(
           children: [
-            const Icon(Icons.track_changes, color: Color(0xFF48115B)),
-            const SizedBox(width: 8),
-            const Text(
-              'RTS Tracking',
-              style: TextStyle(fontWeight: FontWeight.w800),
-            ),
-            const Spacer(),
-            IconButton(onPressed: _refresh, icon: const Icon(Icons.refresh)),
-            IconButton(
-              onPressed: () {},
-              icon: const Icon(Icons.account_circle_outlined),
+            Icon(Icons.track_changes),
+            SizedBox(width: 8),
+            Flexible(
+              child: Text(
+                'RTS Tracking',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontWeight: FontWeight.w800),
+              ),
             ),
           ],
         ),
+        actions: [
+          if (selectedIndex != 3)
+            IconButton(
+              tooltip: 'Refresh dashboard',
+              onPressed: refreshing ? null : _refresh,
+              icon: refreshing
+                  ? const SizedBox.square(
+                      dimension: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.refresh),
+            ),
+          IconButton(
+            tooltip: 'Account and connection settings',
+            onPressed: () => setState(() => selectedIndex = 3),
+            icon: const Icon(Icons.account_circle_outlined),
+          ),
+        ],
       ),
-      body: RefreshIndicator(
-        onRefresh: _refresh,
-        child: ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            _modePicker(),
-            const SizedBox(height: 18),
-            Text(
-              clinic ? 'Clinic overview' : 'Business overview',
-              style: Theme.of(
-                context,
-              ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              clinic
-                  ? 'Monitor appointments, utilization, and clinic alerts.'
-                  : 'Monitor stores, sales, stock, and operational alerts.',
-              style: TextStyle(color: Colors.grey.shade700),
-            ),
-            const SizedBox(height: 18),
-            if (loading)
-              const Center(
-                child: Padding(
-                  padding: EdgeInsets.all(40),
-                  child: CircularProgressIndicator(),
-                ),
-              )
-            else ...[
-              _summaryGrid(clinic),
-              const SizedBox(height: 18),
-              _sectionTitle(clinic ? 'Clinic status' : 'Store status'),
-              const SizedBox(height: 8),
-              ..._siteCards(clinic),
-              const SizedBox(height: 18),
-              _sectionTitle('Attention needed'),
-              const SizedBox(height: 8),
-              _alertCard(
-                clinic
-                    ? '2 appointment follow-ups need review'
-                    : '2 stores have low-stock alerts',
-                clinic ? Icons.event_note_outlined : Icons.inventory_2_outlined,
-                Colors.orange,
-              ),
-              _alertCard(
-                'Last synchronized moments ago',
-                Icons.cloud_done_outlined,
-                Colors.green,
-              ),
-            ],
-          ],
+      body: SafeArea(
+        child: RefreshIndicator(
+          onRefresh: _refresh,
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              return ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
+                children: [
+                  Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 1080),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          _modePicker(),
+                          const SizedBox(height: 20),
+                          _pageHeader(),
+                          const SizedBox(height: 18),
+                          if (selectedIndex == 3)
+                            _settingsView()
+                          else if (loading)
+                            const _LoadingView()
+                          else if (error != null && dashboard == null)
+                            _ErrorView(error: error!, onRetry: _refresh)
+                          else if (dashboard case final data?)
+                            ..._dataView(data, constraints.maxWidth),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
         ),
       ),
       bottomNavigationBar: NavigationBar(
@@ -180,7 +210,7 @@ class _TrackingHomeState extends State<TrackingHome> {
           NavigationDestination(
             icon: Icon(Icons.location_on_outlined),
             selectedIcon: Icon(Icons.location_on),
-            label: 'Sites',
+            label: 'Locations',
           ),
           NavigationDestination(
             icon: Icon(Icons.notifications_none),
@@ -199,6 +229,7 @@ class _TrackingHomeState extends State<TrackingHome> {
 
   Widget _modePicker() {
     return SegmentedButton<TrackingMode>(
+      showSelectedIcon: false,
       segments: const [
         ButtonSegment(
           value: TrackingMode.business,
@@ -212,154 +243,598 @@ class _TrackingHomeState extends State<TrackingHome> {
         ),
       ],
       selected: {mode},
-      onSelectionChanged: (value) => setState(() => mode = value.first),
+      onSelectionChanged: (value) => _selectMode(value.first),
     );
   }
 
-  Widget _summaryGrid(bool clinic) {
-    final items = clinic
-        ? [
-            (
-              'Appointments',
-              '${dashboard['clinicAppointments']}',
-              Icons.event_available_outlined,
-              Colors.blue,
-            ),
-            (
-              'No-shows',
-              '${dashboard['clinicNoShows']}',
-              Icons.event_busy_outlined,
-              Colors.orange,
-            ),
-            (
-              'Clinics online',
-              '${dashboard['online']}/${dashboard['sites']}',
-              Icons.cloud_done_outlined,
-              Colors.green,
-            ),
-            (
-              'Alerts',
-              '${dashboard['alerts']}',
-              Icons.warning_amber_outlined,
-              Colors.red,
-            ),
-          ]
-        : [
-            (
-              'Sales today',
-              '${dashboard['businessSales']}',
-              Icons.payments_outlined,
-              Colors.green,
-            ),
-            (
-              'Stores online',
-              '${dashboard['online']}/${dashboard['sites']}',
-              Icons.store_outlined,
-              Colors.blue,
-            ),
-            (
-              'Alerts',
-              '${dashboard['alerts']}',
-              Icons.warning_amber_outlined,
-              Colors.red,
-            ),
-            ('Sync', 'Healthy', Icons.cloud_done_outlined, Colors.teal),
-          ];
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      itemCount: items.length,
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
-        mainAxisExtent: 116,
-        crossAxisSpacing: 12,
-        mainAxisSpacing: 12,
+  Widget _pageHeader() {
+    final (title, description) = switch (selectedIndex) {
+      0 =>
+        mode == TrackingMode.clinic
+            ? (
+                'Clinic overview',
+                'Appointments, waiting patients, location health, and follow-ups.',
+              )
+            : (
+                'Business overview',
+                'Sales, orders, store health, stock, and operational alerts.',
+              ),
+      1 => (
+        mode == TrackingMode.clinic ? 'Clinic locations' : 'Business stores',
+        'Live operational status for every ${mode.locationName}.',
       ),
-      itemBuilder: (context, index) {
-        final item = items[index];
-        return Card(
-          elevation: 0,
-          color: Colors.white,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
+      2 => (
+        '${mode.displayName} alerts',
+        'Items that need owner attention, ordered by severity.',
+      ),
+      _ => (
+        'Settings',
+        'Review the data source, authentication, and connectivity status.',
+      ),
+    };
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: Theme.of(
+            context,
+          ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          description,
+          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
           ),
-          child: Padding(
-            padding: const EdgeInsets.all(14),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Icon(item.$3, color: item.$4),
-                const Spacer(),
-                Text(
-                  item.$1,
-                  style: TextStyle(color: Colors.grey.shade700, fontSize: 12),
-                ),
-                Text(
-                  item.$2,
-                  style: const TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ],
-            ),
+        ),
+      ],
+    );
+  }
+
+  List<Widget> _dataView(DashboardSnapshot data, double availableWidth) {
+    return [
+      if (data.isDemo) ...[
+        _StatusBanner(
+          icon: Icons.science_outlined,
+          title: 'Demo data',
+          detail:
+              'No live API is configured. Values are local examples and are '
+              'not production records.',
+          color: Theme.of(context).colorScheme.tertiary,
+        ),
+        const SizedBox(height: 16),
+      ],
+      if (error != null) ...[
+        _StatusBanner(
+          icon: Icons.cloud_off_outlined,
+          title: 'Refresh failed',
+          detail: 'Showing the last available data. Pull down to retry.',
+          color: Theme.of(context).colorScheme.error,
+        ),
+        const SizedBox(height: 16),
+      ],
+      switch (selectedIndex) {
+        0 => _overview(data, availableWidth),
+        1 => _locations(data, availableWidth),
+        2 => _alerts(data),
+        _ => const SizedBox.shrink(),
+      },
+    ];
+  }
+
+  Widget _overview(DashboardSnapshot data, double availableWidth) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _summaryGrid(data.metrics, availableWidth),
+        const SizedBox(height: 24),
+        _sectionTitle(
+          '${mode.locationNamePlural[0].toUpperCase()}'
+              '${mode.locationNamePlural.substring(1)} status',
+          '${data.onlineSites}/${data.sites.length} online',
+        ),
+        const SizedBox(height: 8),
+        ...data.sites.take(3).map(_siteCard),
+        const SizedBox(height: 20),
+        _sectionTitle('Attention needed', '${data.alerts.length} open'),
+        const SizedBox(height: 8),
+        if (data.alerts.isEmpty)
+          const _EmptyState(
+            icon: Icons.task_alt,
+            title: 'Nothing needs attention',
+            detail: 'New operational alerts will appear here.',
+          )
+        else
+          ...data.alerts.take(3).map(_alertCard),
+        const SizedBox(height: 12),
+        Text(
+          data.synchronizedLabel,
+          textAlign: TextAlign.center,
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
           ),
+        ),
+      ],
+    );
+  }
+
+  Widget _locations(DashboardSnapshot data, double availableWidth) {
+    if (data.sites.isEmpty) {
+      return _EmptyState(
+        icon: mode == TrackingMode.clinic
+            ? Icons.local_hospital_outlined
+            : Icons.storefront_outlined,
+        title: 'No ${mode.locationNamePlural} found',
+        detail:
+            'Locations returned by the owner dashboard API will appear here.',
+      );
+    }
+
+    final columns = availableWidth >= 760 ? 2 : 1;
+    if (columns == 1) {
+      return Column(children: data.sites.map(_siteCard).toList());
+    }
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final itemWidth = (constraints.maxWidth - 12) / 2;
+        return Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          children: data.sites
+              .map(
+                (site) => SizedBox(
+                  width: itemWidth,
+                  child: _siteCard(site, margin: EdgeInsets.zero),
+                ),
+              )
+              .toList(),
         );
       },
     );
   }
 
-  List<Widget> _siteCards(bool clinic) {
-    final names = clinic
-        ? ['RTS Clinic Main', 'RTS Clinic North', 'RTS Clinic West']
-        : [
-            'RTS Business Main Store',
-            'RTS Business Mall',
-            'RTS Business Warehouse',
-          ];
-    return names.map((name) {
-      final online = name != names.last;
-      return Card(
-        elevation: 0,
-        color: Colors.white,
-        child: ListTile(
-          leading: CircleAvatar(
-            backgroundColor: online ? Colors.green.shade50 : Colors.red.shade50,
-            child: Icon(
-              online ? Icons.check : Icons.cloud_off,
-              color: online ? Colors.green : Colors.red,
-            ),
-          ),
-          title: Text(
-            name,
-            style: const TextStyle(fontWeight: FontWeight.w700),
-          ),
-          subtitle: Text(
-            online
-                ? 'Online · updated just now'
-                : 'Offline · last update 18 min ago',
-          ),
-          trailing: const Icon(Icons.chevron_right),
-          onTap: () {},
-        ),
+  Widget _alerts(DashboardSnapshot data) {
+    if (data.alerts.isEmpty) {
+      return const _EmptyState(
+        icon: Icons.notifications_off_outlined,
+        title: 'No active alerts',
+        detail: 'Operational alerts will appear here when action is required.',
       );
-    }).toList();
+    }
+    return Column(children: data.alerts.map(_alertCard).toList());
   }
 
-  Widget _sectionTitle(String title) => Text(
-    title,
-    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
-  );
+  Widget _settingsView() {
+    final scheme = Theme.of(context).colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _StatusBanner(
+          icon: widget.api.isDemo
+              ? Icons.science_outlined
+              : Icons.cloud_outlined,
+          title: widget.api.isDemo ? 'Demo data source' : 'Live API configured',
+          detail: widget.api.isDemo
+              ? 'Set RTS_API_BASE_URL at build time to select a live endpoint.'
+              : 'Endpoint: ${widget.api.baseUrl}',
+          color: widget.api.isDemo ? scheme.tertiary : scheme.primary,
+        ),
+        const SizedBox(height: 12),
+        _StatusBanner(
+          icon: Icons.lock_outline,
+          title: widget.api.tokenProvider == null
+              ? 'Authentication not connected'
+              : 'Authentication provider connected',
+          detail: widget.api.tokenProvider == null
+              ? 'A live identity provider and owner sign-in contract are still '
+                    'required before production data can be requested.'
+              : 'Live requests require a valid owner bearer token.',
+          color: widget.api.tokenProvider == null
+              ? scheme.error
+              : scheme.primary,
+        ),
+        const SizedBox(height: 12),
+        _StatusBanner(
+          icon: Icons.wifi_outlined,
+          title: 'Connectivity behavior',
+          detail:
+              'Requests use a 12-second timeout, preserve last-known data on '
+              'refresh failure, and expose retry actions.',
+          color: scheme.secondary,
+        ),
+      ],
+    );
+  }
 
-  Widget _alertCard(String text, IconData icon, Color color) {
-    return Card(
-      elevation: 0,
-      color: Colors.white,
-      child: ListTile(
-        leading: Icon(icon, color: color),
-        title: Text(text),
-        trailing: const Icon(Icons.chevron_right),
-        onTap: () {},
+  Widget _summaryGrid(List<DashboardMetric> metrics, double availableWidth) {
+    if (metrics.isEmpty) {
+      return const _EmptyState(
+        icon: Icons.query_stats_outlined,
+        title: 'No summary available',
+        detail: 'The dashboard API returned no summary metrics.',
+      );
+    }
+    final columns = availableWidth < 360
+        ? 1
+        : availableWidth < 760
+        ? 2
+        : 4;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final spacing = 12.0;
+        final width =
+            (constraints.maxWidth - (spacing * (columns - 1))) / columns;
+        return Wrap(
+          spacing: spacing,
+          runSpacing: spacing,
+          children: metrics
+              .map(
+                (metric) => SizedBox(
+                  width: width,
+                  child: _MetricCard(metric: metric),
+                ),
+              )
+              .toList(),
+        );
+      },
+    );
+  }
+
+  Widget _siteCard(SiteSnapshot site, {EdgeInsets? margin}) {
+    final scheme = Theme.of(context).colorScheme;
+    final statusColor = site.online ? const Color(0xFF137333) : scheme.error;
+    return Semantics(
+      label:
+          '${site.name}, ${site.online ? 'online' : 'offline'}, '
+          '${site.primaryLabel}: ${site.primaryValue}',
+      child: Card(
+        margin: margin ?? const EdgeInsets.only(bottom: 10),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              CircleAvatar(
+                backgroundColor: statusColor.withValues(alpha: 0.12),
+                foregroundColor: statusColor,
+                child: Icon(
+                  site.online ? Icons.check : Icons.cloud_off_outlined,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      site.name,
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      '${site.online ? 'Online' : 'Offline'} · '
+                      '${site.updatedLabel}',
+                      style: TextStyle(color: scheme.onSurfaceVariant),
+                    ),
+                    if (site.attention case final attention?) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        attention,
+                        style: TextStyle(
+                          color: site.online ? scheme.tertiary : scheme.error,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 10),
+                    Text(
+                      site.primaryValue,
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    Text(
+                      site.primaryLabel,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _alertCard(TrackingAlert alert) {
+    final scheme = Theme.of(context).colorScheme;
+    final (icon, color) = switch (alert.level) {
+      AlertLevel.info => (Icons.info_outline, scheme.primary),
+      AlertLevel.warning => (Icons.warning_amber_outlined, scheme.tertiary),
+      AlertLevel.critical => (Icons.error_outline, scheme.error),
+    };
+    return Semantics(
+      label: '${alert.level.name} alert: ${alert.title}. ${alert.detail}',
+      child: Card(
+        margin: const EdgeInsets.only(bottom: 10),
+        child: ListTile(
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 6,
+          ),
+          leading: Icon(icon, color: color),
+          title: Text(
+            alert.title,
+            style: const TextStyle(fontWeight: FontWeight.w700),
+          ),
+          subtitle: Text(alert.detail),
+        ),
+      ),
+    );
+  }
+
+  Widget _sectionTitle(String title, String status) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final textScale = MediaQuery.textScalerOf(context).scale(1);
+        final stacked = constraints.maxWidth < 380 || textScale >= 1.5;
+        return Flex(
+          direction: stacked ? Axis.vertical : Axis.horizontal,
+          crossAxisAlignment: stacked
+              ? CrossAxisAlignment.start
+              : CrossAxisAlignment.center,
+          children: [
+            if (!stacked)
+              Expanded(child: _sectionHeading(title))
+            else
+              _sectionHeading(title),
+            SizedBox(width: stacked ? 0 : 12, height: stacked ? 4 : 0),
+            Text(
+              status,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _sectionHeading(String title) {
+    return Text(
+      title,
+      style: Theme.of(
+        context,
+      ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+    );
+  }
+}
+
+class _MetricCard extends StatelessWidget {
+  const _MetricCard({required this.metric});
+
+  final DashboardMetric metric;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Semantics(
+      label: '${metric.label}: ${metric.value}',
+      child: Card(
+        margin: EdgeInsets.zero,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                metric.label,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                metric.value,
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                  color: scheme.onSurface,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _StatusBanner extends StatelessWidget {
+  const _StatusBanner({
+    required this.icon,
+    required this.title,
+    required this.detail,
+    required this.color,
+  });
+
+  final IconData icon;
+  final String title;
+  final String detail;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      container: true,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(icon, color: color),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(detail),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _EmptyState extends StatelessWidget {
+  const _EmptyState({
+    required this.icon,
+    required this.title,
+    required this.detail,
+  });
+
+  final IconData icon;
+  final String title;
+  final String detail;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 16),
+      child: Column(
+        children: [
+          Icon(icon, size: 36, color: scheme.onSurfaceVariant),
+          const SizedBox(height: 12),
+          Text(
+            title,
+            textAlign: TextAlign.center,
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            detail,
+            textAlign: TextAlign.center,
+            style: TextStyle(color: scheme.onSurfaceVariant),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ErrorView extends StatelessWidget {
+  const _ErrorView({required this.error, required this.onRetry});
+
+  final Object error;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final authError = error is AuthRequiredException;
+    return _EmptyStateWithAction(
+      icon: authError ? Icons.lock_outline : Icons.cloud_off_outlined,
+      title: authError ? 'Sign-in is required' : 'Dashboard unavailable',
+      detail: authError
+          ? 'The live endpoint is configured, but no owner authentication '
+                'provider is connected.'
+          : 'Check the connection and try again. No demo data replaces a '
+                'failed live response.',
+      actionLabel: 'Try again',
+      onAction: onRetry,
+    );
+  }
+}
+
+class _EmptyStateWithAction extends StatelessWidget {
+  const _EmptyStateWithAction({
+    required this.icon,
+    required this.title,
+    required this.detail,
+    required this.actionLabel,
+    required this.onAction,
+  });
+
+  final IconData icon;
+  final String title;
+  final String detail;
+  final String actionLabel;
+  final VoidCallback onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        _EmptyState(icon: icon, title: title, detail: detail),
+        FilledButton.icon(
+          onPressed: onAction,
+          icon: const Icon(Icons.refresh),
+          label: Text(actionLabel),
+        ),
+      ],
+    );
+  }
+}
+
+class _LoadingView extends StatelessWidget {
+  const _LoadingView();
+
+  @override
+  Widget build(BuildContext context) {
+    final color = Theme.of(context).colorScheme.surfaceContainerHighest;
+    return Semantics(
+      label: 'Loading dashboard',
+      child: Column(
+        children: [
+          Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            children: List.generate(
+              4,
+              (_) => Container(
+                width: 150,
+                height: 92,
+                decoration: BoxDecoration(
+                  color: color,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 20),
+          ...List.generate(
+            3,
+            (_) => Container(
+              height: 82,
+              margin: const EdgeInsets.only(bottom: 10),
+              decoration: BoxDecoration(
+                color: color,
+                borderRadius: BorderRadius.circular(14),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
