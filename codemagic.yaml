@@ -29,6 +29,8 @@ workflows:
     scripts:
       - name: Install packages
         script: flutter pub get
+      - name: Install CocoaPods dependencies
+        script: cd ios && pod install --repo-update
       - name: Apply iOS signing profiles
         script: xcode-project use-profiles
       - name: Build signed IPA
