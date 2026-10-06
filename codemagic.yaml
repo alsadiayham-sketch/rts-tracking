@@ -40,6 +40,4 @@ workflows:
     publishing:
       app_store_connect:
         auth: integration
-        # Upload to App Store Connect/TestFlight without requesting external
-        # beta review, which requires Apple-specific review contact fields.
-        submit_to_testflight: false
+        submit_to_testflight: true
