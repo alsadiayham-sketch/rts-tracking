@@ -29,6 +29,25 @@ workflows:
     scripts:
       - name: Install packages
         script: flutter pub get
+      - name: Select next iOS build number
+        script: |
+          set -e
+          if [ -z "$APP_STORE_APPLE_ID" ]; then
+            echo "APP_STORE_APPLE_ID is required for automatic build numbering."
+            exit 1
+          fi
+          LATEST=$(app-store-connect get-latest-testflight-build-number "$APP_STORE_APPLE_ID")
+          case "$LATEST" in
+            ''|*[!0-9]*)
+              echo "Invalid latest TestFlight build number: $LATEST"
+              exit 1
+              ;;
+          esac
+          NEXT=$((LATEST + 1))
+          echo "Latest TestFlight build: $LATEST -> building $NEXT"
+          sed -i.bak "s/^version: .*/version: 1.0.0+$NEXT/" pubspec.yaml
+          rm -f pubspec.yaml.bak
+          flutter pub get
       - name: Install CocoaPods dependencies
         script: cd ios && pod install --repo-update
       - name: Apply iOS signing profiles
