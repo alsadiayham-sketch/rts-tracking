@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+
 enum TrackingMode { business, clinic }
 
 extension TrackingModeDetails on TrackingMode {
@@ -158,11 +160,109 @@ class DashboardSnapshot {
 typedef AuthTokenProvider = Future<String?> Function();
 typedef HttpClientFactory = HttpClient Function();
 
+class OwnerSession {
+  const OwnerSession({
+    required this.token,
+    required this.mode,
+    this.ownerName,
+    this.displayName,
+  });
+
+  factory OwnerSession.fromLoginJson(Map<String, dynamic> json) {
+    final modeName = _requiredString(json, 'mode');
+    final mode = TrackingMode.values.firstWhere(
+      (candidate) => candidate.apiValue == modeName,
+      orElse: () => throw const FormatException('Unknown owner mode'),
+    );
+    return OwnerSession(
+      token: _requiredString(json, 'token'),
+      mode: mode,
+      ownerName: _optionalString(json, 'ownerName'),
+      displayName: _optionalString(json, 'displayName'),
+    );
+  }
+
+  final String token;
+  final TrackingMode mode;
+  final String? ownerName;
+  final String? displayName;
+
+  String get greetingName => displayName ?? ownerName ?? 'Owner';
+}
+
+abstract class OwnerSessionStore {
+  Future<OwnerSession?> read();
+
+  Future<void> write(OwnerSession session);
+
+  Future<void> clear();
+}
+
+class SecureOwnerSessionStore implements OwnerSessionStore {
+  SecureOwnerSessionStore({FlutterSecureStorage? storage})
+    : _storage = storage ?? const FlutterSecureStorage();
+
+  static const _tokenKey = 'owner_session_token';
+  static const _modeKey = 'owner_session_mode';
+  static const _ownerNameKey = 'owner_session_owner_name';
+  static const _displayNameKey = 'owner_session_display_name';
+
+  final FlutterSecureStorage _storage;
+
+  @override
+  Future<OwnerSession?> read() async {
+    final token = await _storage.read(key: _tokenKey);
+    final modeName = await _storage.read(key: _modeKey);
+    if (token == null ||
+        token.trim().isEmpty ||
+        !TrackingMode.values.any((mode) => mode.apiValue == modeName)) {
+      await clear();
+      return null;
+    }
+    return OwnerSession(
+      token: token,
+      mode: TrackingMode.values.firstWhere((mode) => mode.apiValue == modeName),
+      ownerName: await _storage.read(key: _ownerNameKey),
+      displayName: await _storage.read(key: _displayNameKey),
+    );
+  }
+
+  @override
+  Future<void> write(OwnerSession session) async {
+    await _storage.write(key: _tokenKey, value: session.token);
+    await _storage.write(key: _modeKey, value: session.mode.apiValue);
+    await _writeOptional(_ownerNameKey, session.ownerName);
+    await _writeOptional(_displayNameKey, session.displayName);
+  }
+
+  Future<void> _writeOptional(String key, String? value) {
+    if (value == null) return _storage.delete(key: key);
+    return _storage.write(key: key, value: value);
+  }
+
+  @override
+  Future<void> clear() async {
+    await Future.wait([
+      _storage.delete(key: _tokenKey),
+      _storage.delete(key: _modeKey),
+      _storage.delete(key: _ownerNameKey),
+      _storage.delete(key: _displayNameKey),
+    ]);
+  }
+}
+
 class AuthRequiredException implements Exception {
   const AuthRequiredException();
 
   @override
   String toString() => 'Owner authentication is required.';
+}
+
+class LoginRejectedException implements Exception {
+  const LoginRejectedException();
+
+  @override
+  String toString() => 'The username or password is incorrect.';
 }
 
 class OwnerApi {
@@ -180,10 +280,51 @@ class OwnerApi {
 
   bool get isDemo => baseUrl == null;
 
-  Future<DashboardSnapshot> getDashboard(TrackingMode mode) async {
+  Future<OwnerSession> login(String username, String password) async {
+    if (baseUrl == null) {
+      throw StateError('Owner login is unavailable in demo mode.');
+    }
+
+    final endpoint = baseUrl!.resolve('/owner/login');
+    final client = _clientFactory();
+    try {
+      final request = await client.postUrl(endpoint).timeout(requestTimeout);
+      request.headers
+        ..set(HttpHeaders.acceptHeader, ContentType.json.mimeType)
+        ..contentType = ContentType.json;
+      request.write(jsonEncode({'username': username, 'password': password}));
+      final response = await request.close().timeout(requestTimeout);
+      final body = await response
+          .transform(utf8.decoder)
+          .join()
+          .timeout(requestTimeout);
+      if (response.statusCode == HttpStatus.unauthorized ||
+          response.statusCode == HttpStatus.forbidden) {
+        throw const LoginRejectedException();
+      }
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw HttpException(
+          'Login request failed: ${response.statusCode}',
+          uri: endpoint,
+        );
+      }
+      final decoded = jsonDecode(body);
+      if (decoded is! Map<String, dynamic>) {
+        throw const FormatException('Login response must be an object');
+      }
+      return OwnerSession.fromLoginJson(decoded);
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  Future<DashboardSnapshot> getDashboard(
+    TrackingMode mode, {
+    String? authToken,
+  }) async {
     if (baseUrl == null) return _demoDashboard(mode);
 
-    final token = await tokenProvider?.call();
+    final token = authToken ?? await tokenProvider?.call();
     if (token == null || token.trim().isEmpty) {
       throw const AuthRequiredException();
     }
@@ -367,6 +508,15 @@ String _requiredString(Map<String, dynamic> json, String key) {
   final value = json[key];
   if (value is! String || value.trim().isEmpty) {
     throw FormatException('$key must be a non-empty string');
+  }
+  return value;
+}
+
+String? _optionalString(Map<String, dynamic> json, String key) {
+  final value = json[key];
+  if (value == null) return null;
+  if (value is! String || value.trim().isEmpty) {
+    throw FormatException('$key must be a non-empty string when provided');
   }
   return value;
 }

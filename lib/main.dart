@@ -11,20 +11,27 @@ void main() {
 }
 
 class RtsTrackingApp extends StatelessWidget {
-  const RtsTrackingApp({super.key, this.api});
+  const RtsTrackingApp({super.key, this.api, this.sessionStore});
 
   final OwnerApi? api;
+  final OwnerSessionStore? sessionStore;
 
   @override
   Widget build(BuildContext context) {
     const seed = Color(0xFF48115B);
+    final effectiveApi = api ?? OwnerApi();
     return MaterialApp(
       title: 'RTS Tracking',
       debugShowCheckedModeBanner: false,
       themeMode: ThemeMode.system,
       theme: _theme(Brightness.light, seed),
       darkTheme: _theme(Brightness.dark, seed),
-      home: TrackingHome(api: api ?? OwnerApi()),
+      home: effectiveApi.isDemo
+          ? TrackingHome(api: effectiveApi)
+          : AuthenticatedOwnerFlow(
+              api: effectiveApi,
+              sessionStore: sessionStore ?? SecureOwnerSessionStore(),
+            ),
     );
   }
 
@@ -50,17 +57,301 @@ class RtsTrackingApp extends StatelessWidget {
   }
 }
 
-class TrackingHome extends StatefulWidget {
-  const TrackingHome({super.key, required this.api});
+class AuthenticatedOwnerFlow extends StatefulWidget {
+  const AuthenticatedOwnerFlow({
+    super.key,
+    required this.api,
+    required this.sessionStore,
+  });
 
   final OwnerApi api;
+  final OwnerSessionStore sessionStore;
+
+  @override
+  State<AuthenticatedOwnerFlow> createState() => _AuthenticatedOwnerFlowState();
+}
+
+class _AuthenticatedOwnerFlowState extends State<AuthenticatedOwnerFlow> {
+  OwnerSession? session;
+  String? notice;
+  bool restoring = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _restore();
+  }
+
+  Future<void> _restore() async {
+    try {
+      final restoredSession = await widget.sessionStore.read();
+      if (!mounted) return;
+      setState(() => session = restoredSession);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        notice = 'The saved session could not be restored. Sign in again.';
+      });
+    } finally {
+      if (mounted) setState(() => restoring = false);
+    }
+  }
+
+  Future<void> _login(String username, String password) async {
+    final authenticated = await widget.api.login(username, password);
+    await widget.sessionStore.write(authenticated);
+    if (!mounted) return;
+    setState(() {
+      session = authenticated;
+      notice = null;
+    });
+  }
+
+  Future<void> _logout() async {
+    await widget.sessionStore.clear();
+    if (!mounted) return;
+    setState(() {
+      session = null;
+      notice = null;
+    });
+  }
+
+  Future<void> _invalidateSession() async {
+    await widget.sessionStore.clear();
+    if (!mounted) return;
+    setState(() {
+      session = null;
+      notice = 'Your session expired. Sign in again.';
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (restoring) {
+      return const Scaffold(
+        body: SafeArea(
+          child: Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(height: 16),
+                Text('Restoring secure session…'),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    final activeSession = session;
+    if (activeSession == null) {
+      return OwnerLoginScreen(onLogin: _login, notice: notice);
+    }
+    return TrackingHome(
+      api: widget.api,
+      session: activeSession,
+      onLogout: _logout,
+      onAuthInvalidated: _invalidateSession,
+    );
+  }
+}
+
+class OwnerLoginScreen extends StatefulWidget {
+  const OwnerLoginScreen({super.key, required this.onLogin, this.notice});
+
+  final Future<void> Function(String username, String password) onLogin;
+  final String? notice;
+
+  @override
+  State<OwnerLoginScreen> createState() => _OwnerLoginScreenState();
+}
+
+class _OwnerLoginScreenState extends State<OwnerLoginScreen> {
+  final formKey = GlobalKey<FormState>();
+  final usernameController = TextEditingController();
+  final passwordController = TextEditingController();
+  bool submitting = false;
+  bool obscurePassword = true;
+  String? errorMessage;
+
+  @override
+  void dispose() {
+    usernameController.dispose();
+    passwordController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    if (submitting || !formKey.currentState!.validate()) return;
+    setState(() {
+      submitting = true;
+      errorMessage = null;
+    });
+    try {
+      await widget.onLogin(
+        usernameController.text.trim(),
+        passwordController.text,
+      );
+    } on LoginRejectedException {
+      errorMessage = 'The username or password is incorrect.';
+    } on FormatException {
+      errorMessage = 'The server returned an invalid login response.';
+    } catch (_) {
+      errorMessage = 'Could not sign in. Check the connection and try again.';
+    } finally {
+      if (mounted) setState(() => submitting = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Scaffold(
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.all(24),
+          children: [
+            Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 440),
+                child: Form(
+                  key: formKey,
+                  child: AutofillGroup(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        const SizedBox(height: 48),
+                        Icon(
+                          Icons.track_changes,
+                          size: 48,
+                          color: scheme.primary,
+                        ),
+                        const SizedBox(height: 20),
+                        Text(
+                          'Owner sign in',
+                          textAlign: TextAlign.center,
+                          style: Theme.of(context).textTheme.headlineMedium
+                              ?.copyWith(fontWeight: FontWeight.w800),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Sign in to view the dashboard assigned to your account.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: scheme.onSurfaceVariant),
+                        ),
+                        if (widget.notice case final notice?) ...[
+                          const SizedBox(height: 20),
+                          _StatusBanner(
+                            icon: Icons.info_outline,
+                            title: 'Sign-in required',
+                            detail: notice,
+                            color: scheme.primary,
+                          ),
+                        ],
+                        const SizedBox(height: 28),
+                        TextFormField(
+                          key: const Key('owner-username'),
+                          controller: usernameController,
+                          autofillHints: const [AutofillHints.username],
+                          autocorrect: false,
+                          textInputAction: TextInputAction.next,
+                          decoration: const InputDecoration(
+                            labelText: 'Username',
+                            prefixIcon: Icon(Icons.person_outline),
+                          ),
+                          validator: (value) =>
+                              value == null || value.trim().isEmpty
+                              ? 'Enter your username'
+                              : null,
+                        ),
+                        const SizedBox(height: 16),
+                        TextFormField(
+                          key: const Key('owner-password'),
+                          controller: passwordController,
+                          autofillHints: const [AutofillHints.password],
+                          obscureText: obscurePassword,
+                          onFieldSubmitted: (_) => _submit(),
+                          decoration: InputDecoration(
+                            labelText: 'Password',
+                            prefixIcon: const Icon(Icons.lock_outline),
+                            suffixIcon: IconButton(
+                              tooltip: obscurePassword
+                                  ? 'Show password'
+                                  : 'Hide password',
+                              onPressed: () => setState(
+                                () => obscurePassword = !obscurePassword,
+                              ),
+                              icon: Icon(
+                                obscurePassword
+                                    ? Icons.visibility_outlined
+                                    : Icons.visibility_off_outlined,
+                              ),
+                            ),
+                          ),
+                          validator: (value) => value == null || value.isEmpty
+                              ? 'Enter your password'
+                              : null,
+                        ),
+                        if (errorMessage case final message?) ...[
+                          const SizedBox(height: 12),
+                          Text(
+                            message,
+                            key: const Key('login-error'),
+                            style: TextStyle(
+                              color: scheme.error,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: 24),
+                        FilledButton(
+                          onPressed: submitting ? null : _submit,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            child: submitting
+                                ? const SizedBox.square(
+                                    dimension: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : const Text('Sign in'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class TrackingHome extends StatefulWidget {
+  const TrackingHome({
+    super.key,
+    required this.api,
+    this.session,
+    this.onLogout,
+    this.onAuthInvalidated,
+  });
+
+  final OwnerApi api;
+  final OwnerSession? session;
+  final Future<void> Function()? onLogout;
+  final Future<void> Function()? onAuthInvalidated;
 
   @override
   State<TrackingHome> createState() => _TrackingHomeState();
 }
 
 class _TrackingHomeState extends State<TrackingHome> {
-  TrackingMode mode = TrackingMode.business;
+  late TrackingMode mode;
   int selectedIndex = 0;
   DashboardSnapshot? dashboard;
   Object? error;
@@ -70,6 +361,7 @@ class _TrackingHomeState extends State<TrackingHome> {
   @override
   void initState() {
     super.initState();
+    mode = widget.session?.mode ?? TrackingMode.business;
     _refresh();
   }
 
@@ -84,13 +376,20 @@ class _TrackingHomeState extends State<TrackingHome> {
     }
 
     try {
-      final data = await widget.api.getDashboard(mode);
+      final data = await widget.api.getDashboard(
+        mode,
+        authToken: widget.session?.token,
+      );
       if (!mounted) return;
       setState(() {
         dashboard = data;
         error = null;
       });
     } catch (caughtError) {
+      if (caughtError is AuthRequiredException && widget.session != null) {
+        await widget.onAuthInvalidated?.call();
+        return;
+      }
       if (!mounted) return;
       setState(() => error = caughtError);
       if (dashboard != null) {
@@ -159,6 +458,12 @@ class _TrackingHomeState extends State<TrackingHome> {
             onPressed: () => setState(() => selectedIndex = 3),
             icon: const Icon(Icons.account_circle_outlined),
           ),
+          if (widget.session != null)
+            IconButton(
+              tooltip: 'Sign out',
+              onPressed: widget.onLogout,
+              icon: const Icon(Icons.logout),
+            ),
         ],
       ),
       body: SafeArea(
@@ -176,7 +481,7 @@ class _TrackingHomeState extends State<TrackingHome> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          _modePicker(),
+                          _modeControl(),
                           const SizedBox(height: 20),
                           _pageHeader(),
                           const SizedBox(height: 18),
@@ -227,7 +532,20 @@ class _TrackingHomeState extends State<TrackingHome> {
     );
   }
 
-  Widget _modePicker() {
+  Widget _modeControl() {
+    if (widget.session case final session?) {
+      return Align(
+        alignment: AlignmentDirectional.centerStart,
+        child: Chip(
+          avatar: Icon(
+            mode == TrackingMode.clinic
+                ? Icons.local_hospital_outlined
+                : Icons.storefront_outlined,
+          ),
+          label: Text('${mode.displayName} · ${session.greetingName}'),
+        ),
+      );
+    }
     return SegmentedButton<TrackingMode>(
       showSelectedIcon: false,
       segments: const [
@@ -407,6 +725,36 @@ class _TrackingHomeState extends State<TrackingHome> {
 
   Widget _settingsView() {
     final scheme = Theme.of(context).colorScheme;
+    if (widget.session case final session?) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _StatusBanner(
+            icon: Icons.verified_user_outlined,
+            title: 'Signed in as ${session.greetingName}',
+            detail:
+                '${session.mode.displayName} access is assigned by the server '
+                'and cannot be changed in the app.',
+            color: scheme.primary,
+          ),
+          const SizedBox(height: 12),
+          _StatusBanner(
+            icon: Icons.lock_outline,
+            title: 'Secure owner session',
+            detail:
+                'The access token is stored in secure platform storage and '
+                'sent only to the configured API.',
+            color: scheme.secondary,
+          ),
+          const SizedBox(height: 20),
+          OutlinedButton.icon(
+            onPressed: widget.onLogout,
+            icon: const Icon(Icons.logout),
+            label: const Text('Sign out'),
+          ),
+        ],
+      );
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [

@@ -6,6 +6,7 @@ Flutter owner-monitoring app for two operational modes:
 - **RTS Clinic**: appointments, waiting patients, clinic connectivity, follow-ups, and clinic-level status.
 
 The app starts in clearly labeled demo mode unless a live endpoint is selected.
+Live mode always starts behind owner authentication.
 
 ## Run and validate
 
@@ -26,19 +27,47 @@ Select a live API at build time:
 flutter run --dart-define=RTS_API_BASE_URL=https://api.example.com
 ```
 
-The client requests:
+Production deployments should use HTTPS.
 
-```text
+### Owner login contract
+
+The configured API must accept:
+
+```http
+POST /owner/login
+Content-Type: application/json
+Accept: application/json
+
+{"username":"owner","password":"password"}
+```
+
+Successful response:
+
+```json
+{
+  "token": "opaque-access-token",
+  "mode": "business",
+  "ownerName": "Owner name",
+  "displayName": "Optional display name"
+}
+```
+
+`token` and `mode` are required. `mode` must be exactly `business` or `clinic`;
+the optional names must be non-empty strings when present. HTTP 401 or 403 is
+shown as an invalid-credentials error. Other non-2xx responses fail the login.
+
+The authenticated `mode` is authoritative. Live users cannot switch products in
+the app, and every dashboard request uses only that mode:
+
+```http
 GET /owner/dashboard?mode=business
-GET /owner/dashboard?mode=clinic
-Authorization: Bearer <owner token>
+Authorization: Bearer <token>
 Accept: application/json
 ```
 
-`RtsTrackingApp` and `OwnerApi` support injection of an authenticated
-`AuthTokenProvider`. The repository does **not** include an identity-provider
-SDK, tenant/client IDs, token scopes, or a sign-in endpoint, so live builds fail
-closed until the product's owner-auth contract is supplied.
+For a clinic-authenticated owner, the query value is `clinic` instead. The
+backend must enforce the same owner-to-mode authorization; client-side mode
+locking is not a security boundary.
 
 Expected dashboard response:
 
@@ -72,7 +101,7 @@ Expected dashboard response:
 ```
 
 Alert levels are `info`, `warning`, and `critical`. A response whose `mode`
-does not match the requested mode is rejected.
+does not match the authenticated/requested mode is rejected.
 
 ## Connectivity behavior
 
@@ -80,6 +109,18 @@ does not match the requested mode is rejected.
 - Explicit loading, empty, authentication, and connection-error states.
 - Last-known in-memory data remains visible if a refresh fails.
 - Demo data never silently replaces a failed live response.
+- Dashboard HTTP 401 or 403 clears the saved session and returns to login.
 
-Offline persistence is not implemented because the repository has no approved
-storage/encryption choice or data-retention requirements.
+## Session security
+
+- The access token and minimal session metadata needed to restore its mode are
+  stored with `flutter_secure_storage` in platform-protected storage.
+- Credentials are submitted to the login endpoint and are never persisted.
+- The session is restored on startup. Because the contract has no token
+  validation or refresh endpoint, validity is confirmed by the first dashboard
+  request; a 401 or 403 removes the stored session.
+- Logout removes the stored session before returning to login.
+- Token expiry, refresh, revocation, and server-side owner/mode authorization
+  remain backend responsibilities.
+
+Offline dashboard persistence is not implemented.

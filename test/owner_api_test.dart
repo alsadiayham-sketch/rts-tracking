@@ -5,6 +5,40 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:rts_tracking/tracking_data.dart';
 
 void main() {
+  test('owner login posts credentials and parses the assigned mode', () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => server.close(force: true));
+
+    final requestHandled = server.first.then((request) async {
+      expect(request.method, 'POST');
+      expect(request.uri.path, '/owner/login');
+      expect(request.headers.contentType?.mimeType, ContentType.json.mimeType);
+      final body = jsonDecode(await utf8.decoder.bind(request).join());
+      expect(body, {'username': 'owner', 'password': 'correct horse'});
+      request.response.headers.contentType = ContentType.json;
+      request.response.write(
+        jsonEncode({
+          'token': 'live-session-token',
+          'mode': 'clinic',
+          'ownerName': 'Ada',
+          'displayName': 'Dr Ada',
+        }),
+      );
+      await request.response.close();
+    });
+
+    final api = OwnerApi(
+      baseUrl: Uri.parse('http://${server.address.address}:${server.port}'),
+    );
+    final session = await api.login('owner', 'correct horse');
+    await requestHandled;
+
+    expect(session.token, 'live-session-token');
+    expect(session.mode, TrackingMode.clinic);
+    expect(session.ownerName, 'Ada');
+    expect(session.greetingName, 'Dr Ada');
+  });
+
   test('live API fails closed when owner authentication is unavailable', () {
     final api = OwnerApi(baseUrl: Uri.parse('https://api.example.com'));
 
@@ -71,6 +105,16 @@ void main() {
         'alerts': <Object>[],
         'synchronizedLabel': 'Now',
       }, requestedMode: TrackingMode.business),
+      throwsFormatException,
+    );
+  });
+
+  test('login rejects a mode outside the supported products', () {
+    expect(
+      () => OwnerSession.fromLoginJson({
+        'token': 'session-token',
+        'mode': 'admin',
+      }),
       throwsFormatException,
     );
   });
