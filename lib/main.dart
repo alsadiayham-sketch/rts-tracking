@@ -4,14 +4,13 @@ import 'tracking_data.dart';
 
 void main() {
   const configuredBaseUrl = String.fromEnvironment('RTS_API_BASE_URL');
-  const isReleaseBuild = bool.fromEnvironment('dart.vm.product');
   final baseUrl = configuredBaseUrl.isEmpty
       ? null
       : Uri.tryParse(configuredBaseUrl);
   runApp(
     RtsTrackingApp(
       api: OwnerApi(baseUrl: baseUrl),
-      requireAuthentication: isReleaseBuild,
+      requireAuthentication: true,
     ),
   );
 }
@@ -21,7 +20,7 @@ class RtsTrackingApp extends StatelessWidget {
     super.key,
     this.api,
     this.sessionStore,
-    this.requireAuthentication = false,
+    this.requireAuthentication = true,
   });
 
   final OwnerApi? api;

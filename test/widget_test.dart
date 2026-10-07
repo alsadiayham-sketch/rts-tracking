@@ -8,7 +8,9 @@ void main() {
   testWidgets('shows an explicit Business demo dashboard', (
     WidgetTester tester,
   ) async {
-    await tester.pumpWidget(const RtsTrackingApp());
+    await tester.pumpWidget(
+      const RtsTrackingApp(requireAuthentication: false),
+    );
     await tester.pumpAndSettle();
 
     expect(find.text('RTS Tracking'), findsOneWidget);
@@ -21,7 +23,9 @@ void main() {
   testWidgets('adapts dashboard content for Clinic locations', (
     WidgetTester tester,
   ) async {
-    await tester.pumpWidget(const RtsTrackingApp());
+    await tester.pumpWidget(
+      const RtsTrackingApp(requireAuthentication: false),
+    );
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('RTS Clinic'));
@@ -36,7 +40,9 @@ void main() {
   testWidgets('bottom navigation exposes locations, alerts, and settings', (
     WidgetTester tester,
   ) async {
-    await tester.pumpWidget(const RtsTrackingApp());
+    await tester.pumpWidget(
+      const RtsTrackingApp(requireAuthentication: false),
+    );
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('Locations'));
@@ -66,7 +72,7 @@ void main() {
     await tester.pumpWidget(
       const MediaQuery(
         data: MediaQueryData(textScaler: TextScaler.linear(2)),
-        child: RtsTrackingApp(),
+        child: RtsTrackingApp(requireAuthentication: false),
       ),
     );
     await tester.pumpAndSettle();
