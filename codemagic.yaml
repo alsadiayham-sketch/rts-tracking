@@ -32,11 +32,8 @@ workflows:
       - name: Select next iOS build number
         script: |
           set -e
-          if [ -z "$APP_STORE_APPLE_ID" ]; then
-            echo "APP_STORE_APPLE_ID is required for automatic build numbering."
-            exit 1
-          fi
-          LATEST=$(app-store-connect get-latest-testflight-build-number "$APP_STORE_APPLE_ID")
+          APP_ID="${APP_STORE_APPLE_ID:-6819282346}"
+          LATEST=$(app-store-connect get-latest-testflight-build-number "$APP_ID")
           case "$LATEST" in
             ''|*[!0-9]*)
               echo "Invalid latest TestFlight build number: $LATEST"
