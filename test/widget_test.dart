@@ -75,6 +75,22 @@ void main() {
     expect(find.text('Business overview'), findsOneWidget);
   });
 
+  testWidgets('release-style startup requires login instead of demo mode', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      RtsTrackingApp(
+        api: OwnerApi(),
+        requireAuthentication: true,
+        sessionStore: _MemoryOwnerSessionStore(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Owner sign in'), findsOneWidget);
+    expect(find.text('Demo data'), findsNothing);
+  });
+
   testWidgets('live mode requires login and locks to the authenticated mode', (
     WidgetTester tester,
   ) async {

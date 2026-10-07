@@ -4,17 +4,29 @@ import 'tracking_data.dart';
 
 void main() {
   const configuredBaseUrl = String.fromEnvironment('RTS_API_BASE_URL');
+  const isReleaseBuild = bool.fromEnvironment('dart.vm.product');
   final baseUrl = configuredBaseUrl.isEmpty
       ? null
       : Uri.tryParse(configuredBaseUrl);
-  runApp(RtsTrackingApp(api: OwnerApi(baseUrl: baseUrl)));
+  runApp(
+    RtsTrackingApp(
+      api: OwnerApi(baseUrl: baseUrl),
+      requireAuthentication: isReleaseBuild,
+    ),
+  );
 }
 
 class RtsTrackingApp extends StatelessWidget {
-  const RtsTrackingApp({super.key, this.api, this.sessionStore});
+  const RtsTrackingApp({
+    super.key,
+    this.api,
+    this.sessionStore,
+    this.requireAuthentication = false,
+  });
 
   final OwnerApi? api;
   final OwnerSessionStore? sessionStore;
+  final bool requireAuthentication;
 
   @override
   Widget build(BuildContext context) {
@@ -26,7 +38,7 @@ class RtsTrackingApp extends StatelessWidget {
       themeMode: ThemeMode.system,
       theme: _theme(Brightness.light, seed),
       darkTheme: _theme(Brightness.dark, seed),
-      home: effectiveApi.isDemo
+      home: effectiveApi.isDemo && !requireAuthentication
           ? TrackingHome(api: effectiveApi)
           : AuthenticatedOwnerFlow(
               api: effectiveApi,
