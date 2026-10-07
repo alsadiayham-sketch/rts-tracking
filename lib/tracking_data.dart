@@ -164,6 +164,7 @@ class OwnerSession {
   const OwnerSession({
     required this.token,
     required this.mode,
+    this.organizationName,
     this.ownerName,
     this.displayName,
   });
@@ -177,6 +178,7 @@ class OwnerSession {
     return OwnerSession(
       token: _requiredString(json, 'token'),
       mode: mode,
+      organizationName: _optionalString(json, 'organizationName'),
       ownerName: _optionalString(json, 'ownerName'),
       displayName: _optionalString(json, 'displayName'),
     );
@@ -184,6 +186,7 @@ class OwnerSession {
 
   final String token;
   final TrackingMode mode;
+  final String? organizationName;
   final String? ownerName;
   final String? displayName;
 
@@ -204,6 +207,7 @@ class SecureOwnerSessionStore implements OwnerSessionStore {
 
   static const _tokenKey = 'owner_session_token';
   static const _modeKey = 'owner_session_mode';
+  static const _organizationNameKey = 'owner_session_organization_name';
   static const _ownerNameKey = 'owner_session_owner_name';
   static const _displayNameKey = 'owner_session_display_name';
 
@@ -222,6 +226,7 @@ class SecureOwnerSessionStore implements OwnerSessionStore {
     return OwnerSession(
       token: token,
       mode: TrackingMode.values.firstWhere((mode) => mode.apiValue == modeName),
+      organizationName: await _storage.read(key: _organizationNameKey),
       ownerName: await _storage.read(key: _ownerNameKey),
       displayName: await _storage.read(key: _displayNameKey),
     );
@@ -231,6 +236,7 @@ class SecureOwnerSessionStore implements OwnerSessionStore {
   Future<void> write(OwnerSession session) async {
     await _storage.write(key: _tokenKey, value: session.token);
     await _storage.write(key: _modeKey, value: session.mode.apiValue);
+    await _writeOptional(_organizationNameKey, session.organizationName);
     await _writeOptional(_ownerNameKey, session.ownerName);
     await _writeOptional(_displayNameKey, session.displayName);
   }
@@ -245,6 +251,7 @@ class SecureOwnerSessionStore implements OwnerSessionStore {
     await Future.wait([
       _storage.delete(key: _tokenKey),
       _storage.delete(key: _modeKey),
+      _storage.delete(key: _organizationNameKey),
       _storage.delete(key: _ownerNameKey),
       _storage.delete(key: _displayNameKey),
     ]);
@@ -280,7 +287,11 @@ class OwnerApi {
 
   bool get isDemo => baseUrl == null;
 
-  Future<OwnerSession> login(String username, String password) async {
+  Future<OwnerSession> login(
+    String organizationName,
+    String username,
+    String password,
+  ) async {
     if (baseUrl == null) {
       throw StateError('Owner login is unavailable in demo mode.');
     }
@@ -292,7 +303,13 @@ class OwnerApi {
       request.headers
         ..set(HttpHeaders.acceptHeader, ContentType.json.mimeType)
         ..contentType = ContentType.json;
-      request.write(jsonEncode({'username': username, 'password': password}));
+      request.write(
+        jsonEncode({
+          'organizationName': organizationName,
+          'username': username,
+          'password': password,
+        }),
+      );
       final response = await request.close().timeout(requestTimeout);
       final body = await response
           .transform(utf8.decoder)

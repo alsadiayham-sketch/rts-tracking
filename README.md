@@ -38,7 +38,7 @@ POST /owner/login
 Content-Type: application/json
 Accept: application/json
 
-{"username":"owner","password":"password"}
+{"organizationName":"RTS Clinic Main","username":"owner","password":"password"}
 ```
 
 Successful response:
@@ -47,12 +47,15 @@ Successful response:
 {
   "token": "opaque-access-token",
   "mode": "business",
+  "organizationName": "RTS Business Main",
   "ownerName": "Owner name",
   "displayName": "Optional display name"
 }
 ```
 
-`token` and `mode` are required. `mode` must be exactly `business` or `clinic`;
+`token`, `mode`, and the submitted `organizationName` are required. `mode` must
+be exactly `business` or `clinic`; the backend must verify that the supplied
+business/clinic name belongs to the authenticated account.
 the optional names must be non-empty strings when present. HTTP 401 or 403 is
 shown as an invalid-credentials error. Other non-2xx responses fail the login.
 

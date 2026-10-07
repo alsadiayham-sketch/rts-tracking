@@ -108,8 +108,16 @@ class _AuthenticatedOwnerFlowState extends State<AuthenticatedOwnerFlow> {
     }
   }
 
-  Future<void> _login(String username, String password) async {
-    final authenticated = await widget.api.login(username, password);
+  Future<void> _login(
+    String organizationName,
+    String username,
+    String password,
+  ) async {
+    final authenticated = await widget.api.login(
+      organizationName,
+      username,
+      password,
+    );
     await widget.sessionStore.write(authenticated);
     if (!mounted) return;
     setState(() {
@@ -171,7 +179,12 @@ class _AuthenticatedOwnerFlowState extends State<AuthenticatedOwnerFlow> {
 class OwnerLoginScreen extends StatefulWidget {
   const OwnerLoginScreen({super.key, required this.onLogin, this.notice});
 
-  final Future<void> Function(String username, String password) onLogin;
+  final Future<void> Function(
+    String organizationName,
+    String username,
+    String password,
+  )
+  onLogin;
   final String? notice;
 
   @override
@@ -180,6 +193,7 @@ class OwnerLoginScreen extends StatefulWidget {
 
 class _OwnerLoginScreenState extends State<OwnerLoginScreen> {
   final formKey = GlobalKey<FormState>();
+  final organizationNameController = TextEditingController();
   final usernameController = TextEditingController();
   final passwordController = TextEditingController();
   bool submitting = false;
@@ -188,6 +202,7 @@ class _OwnerLoginScreenState extends State<OwnerLoginScreen> {
 
   @override
   void dispose() {
+    organizationNameController.dispose();
     usernameController.dispose();
     passwordController.dispose();
     super.dispose();
@@ -201,11 +216,13 @@ class _OwnerLoginScreenState extends State<OwnerLoginScreen> {
     });
     try {
       await widget.onLogin(
+        organizationNameController.text.trim(),
         usernameController.text.trim(),
         passwordController.text,
       );
     } on LoginRejectedException {
-      errorMessage = 'The username or password is incorrect.';
+      errorMessage =
+          'The business/clinic name, username, or password is incorrect.';
     } on FormatException {
       errorMessage = 'The server returned an invalid login response.';
     } catch (_) {
@@ -261,6 +278,20 @@ class _OwnerLoginScreenState extends State<OwnerLoginScreen> {
                           ),
                         ],
                         const SizedBox(height: 28),
+                        TextFormField(
+                          key: const Key('owner-organization'),
+                          controller: organizationNameController,
+                          textInputAction: TextInputAction.next,
+                          decoration: const InputDecoration(
+                            labelText: 'Business or clinic name',
+                            prefixIcon: Icon(Icons.business_outlined),
+                          ),
+                          validator: (value) =>
+                              value == null || value.trim().isEmpty
+                              ? 'Enter your business or clinic name'
+                              : null,
+                        ),
+                        const SizedBox(height: 16),
                         TextFormField(
                           key: const Key('owner-username'),
                           controller: usernameController,

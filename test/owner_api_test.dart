@@ -14,12 +14,17 @@ void main() {
       expect(request.uri.path, '/owner/login');
       expect(request.headers.contentType?.mimeType, ContentType.json.mimeType);
       final body = jsonDecode(await utf8.decoder.bind(request).join());
-      expect(body, {'username': 'owner', 'password': 'correct horse'});
+      expect(body, {
+        'organizationName': 'RTS Clinic Main',
+        'username': 'owner',
+        'password': 'correct horse',
+      });
       request.response.headers.contentType = ContentType.json;
       request.response.write(
         jsonEncode({
           'token': 'live-session-token',
           'mode': 'clinic',
+          'organizationName': 'RTS Clinic Main',
           'ownerName': 'Ada',
           'displayName': 'Dr Ada',
         }),
@@ -30,11 +35,16 @@ void main() {
     final api = OwnerApi(
       baseUrl: Uri.parse('http://${server.address.address}:${server.port}'),
     );
-    final session = await api.login('owner', 'correct horse');
+    final session = await api.login(
+      'RTS Clinic Main',
+      'owner',
+      'correct horse',
+    );
     await requestHandled;
 
     expect(session.token, 'live-session-token');
     expect(session.mode, TrackingMode.clinic);
+    expect(session.organizationName, 'RTS Clinic Main');
     expect(session.ownerName, 'Ada');
     expect(session.greetingName, 'Dr Ada');
   });

@@ -8,9 +8,7 @@ void main() {
   testWidgets('shows an explicit Business demo dashboard', (
     WidgetTester tester,
   ) async {
-    await tester.pumpWidget(
-      const RtsTrackingApp(requireAuthentication: false),
-    );
+    await tester.pumpWidget(const RtsTrackingApp(requireAuthentication: false));
     await tester.pumpAndSettle();
 
     expect(find.text('RTS Tracking'), findsOneWidget);
@@ -23,9 +21,7 @@ void main() {
   testWidgets('adapts dashboard content for Clinic locations', (
     WidgetTester tester,
   ) async {
-    await tester.pumpWidget(
-      const RtsTrackingApp(requireAuthentication: false),
-    );
+    await tester.pumpWidget(const RtsTrackingApp(requireAuthentication: false));
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('RTS Clinic'));
@@ -40,9 +36,7 @@ void main() {
   testWidgets('bottom navigation exposes locations, alerts, and settings', (
     WidgetTester tester,
   ) async {
-    await tester.pumpWidget(
-      const RtsTrackingApp(requireAuthentication: false),
-    );
+    await tester.pumpWidget(const RtsTrackingApp(requireAuthentication: false));
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('Locations'));
@@ -104,6 +98,7 @@ void main() {
       loginSession: const OwnerSession(
         token: 'clinic-token',
         mode: TrackingMode.clinic,
+        organizationName: 'RTS Clinic Main',
         displayName: 'Dr Ada',
       ),
       dashboard: _clinicDashboard,
@@ -117,6 +112,10 @@ void main() {
     expect(find.text('Clinic overview'), findsNothing);
 
     await tester.enterText(
+      find.byKey(const Key('owner-organization')),
+      'RTS Clinic Main',
+    );
+    await tester.enterText(
       find.byKey(const Key('owner-username')),
       'clinic-owner',
     );
@@ -124,6 +123,7 @@ void main() {
     await tester.tap(find.text('Sign in'));
     await tester.pumpAndSettle();
 
+    expect(api.lastOrganizationName, 'RTS Clinic Main');
     expect(api.lastUsername, 'clinic-owner');
     expect(api.lastPassword, 'secret');
     expect(find.text('Clinic overview'), findsOneWidget);
@@ -141,6 +141,7 @@ void main() {
       loginSession: const OwnerSession(
         token: 'business-token',
         mode: TrackingMode.business,
+        organizationName: 'RTS Business Main',
       ),
       dashboard: _businessDashboard,
     );
@@ -148,6 +149,10 @@ void main() {
 
     await tester.pumpWidget(RtsTrackingApp(api: api, sessionStore: store));
     await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('owner-organization')),
+      'RTS Business Main',
+    );
     await tester.enterText(find.byKey(const Key('owner-username')), 'owner');
     await tester.enterText(find.byKey(const Key('owner-password')), 'password');
     await tester.tap(find.text('Sign in'));
@@ -171,6 +176,7 @@ void main() {
         loginSession: const OwnerSession(
           token: 'unused',
           mode: TrackingMode.business,
+          organizationName: 'RTS Business Main',
         ),
         dashboard: _businessDashboard,
         rejectDashboard: true,
@@ -222,10 +228,16 @@ class _FakeOwnerApi extends OwnerApi {
   final List<TrackingMode> requestedModes = [];
   final List<String?> dashboardTokens = [];
   String? lastUsername;
+  String? lastOrganizationName;
   String? lastPassword;
 
   @override
-  Future<OwnerSession> login(String username, String password) async {
+  Future<OwnerSession> login(
+    String organizationName,
+    String username,
+    String password,
+  ) async {
+    lastOrganizationName = organizationName;
     lastUsername = username;
     lastPassword = password;
     return loginSession;
