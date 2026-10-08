@@ -67,7 +67,7 @@ void main() {
       expect(request.uri.queryParameters['mode'], 'clinic');
       expect(
         request.headers.value(HttpHeaders.authorizationHeader),
-        startsWith('Bearer '),
+        'Bearer test-session-value',
       );
       request.response.headers.contentType = ContentType.json;
       request.response.write(
@@ -104,6 +104,37 @@ void main() {
     expect(dashboard.metrics.single.value, '8');
     expect(dashboard.sites.single.name, 'RTS Clinic Main');
     expect(dashboard.isDemo, isFalse);
+  });
+
+  test('validates production API base URLs and preserves local test URLs', () {
+    expect(
+      validateApiBaseUrl(Uri.parse('https://api.example.com/rts/')),
+      isNull,
+    );
+    expect(
+      validateApiBaseUrl(Uri.parse('http://api.example.com')),
+      contains('HTTPS'),
+    );
+    expect(validateApiBaseUrl(Uri.parse('http://127.0.0.1:8080')), isNull);
+    expect(
+      validateApiBaseUrl(Uri.parse('https://user:password@api.example.com')),
+      contains('credentials'),
+    );
+  });
+
+  test('configured URL errors are reported before network access', () async {
+    final api = OwnerApi.fromConfiguredUrl('http://api.example.com');
+
+    expect(
+      () => api.login('RTS Clinic Main', 'owner', 'password'),
+      throwsA(
+        isA<ApiConfigurationException>().having(
+          (error) => error.message,
+          'message',
+          contains('HTTPS'),
+        ),
+      ),
+    );
   });
 
   test('dashboard response must match the requested product mode', () {

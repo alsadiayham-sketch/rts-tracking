@@ -27,7 +27,14 @@ Select a live API at build time:
 flutter run --dart-define=RTS_API_BASE_URL=https://api.example.com
 ```
 
-Production deployments should use HTTPS.
+The value is a base URL, so a path is supported (for example,
+`https://api.example.com/rts/`) and the app appends `/owner/login` and
+`/owner/dashboard`. Production deployments must use HTTPS; plain HTTP is only
+accepted for local loopback testing.
+
+CodeMagic release workflows read the non-secret `RTS_API_BASE_URL` from the
+`rts_tracking_api` environment group and pass it with `--dart-define`. Do not
+put credentials or access tokens in the URL or source code.
 
 ### Owner login contract
 
@@ -57,7 +64,8 @@ Successful response:
 be exactly `business` or `clinic`; the backend must verify that the supplied
 business/clinic name belongs to the authenticated account.
 the optional names must be non-empty strings when present. HTTP 401 or 403 is
-shown as an invalid-credentials error. Other non-2xx responses fail the login.
+shown as an invalid-credentials error. Connectivity failures, invalid
+configuration, and other server failures are reported separately in the UI.
 
 The authenticated `mode` is authoritative. Live users cannot switch products in
 the app, and every dashboard request uses only that mode:

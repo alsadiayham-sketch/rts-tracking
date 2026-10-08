@@ -4,12 +4,9 @@ import 'tracking_data.dart';
 
 void main() {
   const configuredBaseUrl = String.fromEnvironment('RTS_API_BASE_URL');
-  final baseUrl = configuredBaseUrl.isEmpty
-      ? null
-      : Uri.tryParse(configuredBaseUrl);
   runApp(
     RtsTrackingApp(
-      api: OwnerApi(baseUrl: baseUrl),
+      api: OwnerApi.fromConfiguredUrl(configuredBaseUrl),
       requireAuthentication: true,
     ),
   );
@@ -223,10 +220,20 @@ class _OwnerLoginScreenState extends State<OwnerLoginScreen> {
     } on LoginRejectedException {
       errorMessage =
           'The business/clinic name, username, or password is incorrect.';
+    } on ApiConfigurationException catch (error) {
+      errorMessage = error.message;
+    } on ApiConnectionException {
+      errorMessage =
+          'Could not reach the sign-in service. Check your connection and '
+          'the configured API URL.';
+    } on ApiServerException catch (error) {
+      errorMessage =
+          'The sign-in service returned an error (${error.statusCode}). '
+          'Try again later.';
     } on FormatException {
       errorMessage = 'The server returned an invalid login response.';
     } catch (_) {
-      errorMessage = 'Could not sign in. Check the connection and try again.';
+      errorMessage = 'Could not sign in because of an unexpected error.';
     } finally {
       if (mounted) setState(() => submitting = false);
     }
@@ -250,10 +257,15 @@ class _OwnerLoginScreenState extends State<OwnerLoginScreen> {
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         const SizedBox(height: 48),
-                        Icon(
-                          Icons.track_changes,
-                          size: 48,
-                          color: scheme.primary,
+                        Semantics(
+                          label: 'RTS Tracking logo',
+                          child: Image.asset(
+                            'assets/rts-tracking-icon.png',
+                            key: const Key('rts-login-logo'),
+                            width: 96,
+                            height: 96,
+                            fit: BoxFit.contain,
+                          ),
                         ),
                         const SizedBox(height: 20),
                         Text(
@@ -1143,14 +1155,29 @@ class _ErrorView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final authError = error is AuthRequiredException;
+    final configurationError = error is ApiConfigurationException;
+    final connectionError = error is ApiConnectionException;
+    final serverError = error is ApiServerException;
     return _EmptyStateWithAction(
-      icon: authError ? Icons.lock_outline : Icons.cloud_off_outlined,
-      title: authError ? 'Sign-in is required' : 'Dashboard unavailable',
+      icon: authError || configurationError
+          ? Icons.lock_outline
+          : Icons.cloud_off_outlined,
+      title: authError
+          ? 'Sign-in is required'
+          : configurationError
+          ? 'API configuration required'
+          : 'Dashboard unavailable',
       detail: authError
           ? 'The live endpoint is configured, but no owner authentication '
                 'provider is connected.'
-          : 'Check the connection and try again. No demo data replaces a '
-                'failed live response.',
+          : configurationError
+          ? (error as ApiConfigurationException).message
+          : connectionError
+          ? 'The live API could not be reached. Check the connection and try '
+                'again.'
+          : serverError
+          ? 'The live API returned an error. Try again later.'
+          : 'The live API returned an unexpected response. Try again.',
       actionLabel: 'Try again',
       onAction: onRetry,
     );

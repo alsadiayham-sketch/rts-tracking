@@ -88,6 +88,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Owner sign in'), findsOneWidget);
+    expect(find.byKey(const Key('rts-login-logo')), findsOneWidget);
     expect(find.text('Demo data'), findsNothing);
   });
 

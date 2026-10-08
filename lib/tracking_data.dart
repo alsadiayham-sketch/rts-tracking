@@ -265,6 +265,34 @@ class AuthRequiredException implements Exception {
   String toString() => 'Owner authentication is required.';
 }
 
+class ApiConfigurationException implements Exception {
+  const ApiConfigurationException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
+class ApiConnectionException implements Exception {
+  const ApiConnectionException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
+class ApiServerException implements Exception {
+  const ApiServerException({required this.operation, required this.statusCode});
+
+  final String operation;
+  final int statusCode;
+
+  @override
+  String toString() => '$operation failed with HTTP $statusCode.';
+}
+
 class LoginRejectedException implements Exception {
   const LoginRejectedException();
 
@@ -278,25 +306,61 @@ class OwnerApi {
     this.tokenProvider,
     HttpClientFactory? clientFactory,
     this.requestTimeout = const Duration(seconds: 12),
-  }) : _clientFactory = clientFactory ?? HttpClient.new;
+    String? configurationError,
+  }) : _clientFactory = clientFactory ?? HttpClient.new,
+       _configurationError = configurationError ?? validateApiBaseUrl(baseUrl);
+
+  factory OwnerApi.fromConfiguredUrl(
+    String configuredBaseUrl, {
+    AuthTokenProvider? tokenProvider,
+    HttpClientFactory? clientFactory,
+    Duration requestTimeout = const Duration(seconds: 12),
+  }) {
+    final value = configuredBaseUrl.trim();
+    if (value.isEmpty) {
+      return OwnerApi(
+        tokenProvider: tokenProvider,
+        clientFactory: clientFactory,
+        requestTimeout: requestTimeout,
+        configurationError:
+            'No live API endpoint is configured. Set RTS_API_BASE_URL.',
+      );
+    }
+    final parsed = Uri.tryParse(value);
+    if (parsed == null) {
+      return OwnerApi(
+        tokenProvider: tokenProvider,
+        clientFactory: clientFactory,
+        requestTimeout: requestTimeout,
+        configurationError: 'RTS_API_BASE_URL is not a valid URL.',
+      );
+    }
+    return OwnerApi(
+      baseUrl: parsed,
+      tokenProvider: tokenProvider,
+      clientFactory: clientFactory,
+      requestTimeout: requestTimeout,
+    );
+  }
 
   final Uri? baseUrl;
   final AuthTokenProvider? tokenProvider;
   final HttpClientFactory _clientFactory;
   final Duration requestTimeout;
+  final String? _configurationError;
 
-  bool get isDemo => baseUrl == null;
+  bool get isDemo => baseUrl == null && _configurationError == null;
+
+  String? get configurationError => _configurationError;
 
   Future<OwnerSession> login(
     String organizationName,
     String username,
     String password,
   ) async {
-    if (baseUrl == null) {
-      throw StateError('Owner login is unavailable in demo mode.');
-    }
+    _ensureConfigured();
 
-    final endpoint = baseUrl!.resolve('/owner/login');
+    final endpoint = _endpoint('owner/login');
     final client = _clientFactory();
     try {
       final request = await client.postUrl(endpoint).timeout(requestTimeout);
@@ -320,9 +384,9 @@ class OwnerApi {
         throw const LoginRejectedException();
       }
       if (response.statusCode < 200 || response.statusCode >= 300) {
-        throw HttpException(
-          'Login request failed: ${response.statusCode}',
-          uri: endpoint,
+        throw ApiServerException(
+          operation: 'Login request',
+          statusCode: response.statusCode,
         );
       }
       final decoded = jsonDecode(body);
@@ -330,6 +394,14 @@ class OwnerApi {
         throw const FormatException('Login response must be an object');
       }
       return OwnerSession.fromLoginJson(decoded);
+    } on ApiServerException {
+      rethrow;
+    } on IOException catch (error) {
+      throw ApiConnectionException('Could not reach the login service: $error');
+    } on TimeoutException {
+      throw const ApiConnectionException(
+        'The login service did not respond before the request timed out.',
+      );
     } finally {
       client.close(force: true);
     }
@@ -339,14 +411,17 @@ class OwnerApi {
     TrackingMode mode, {
     String? authToken,
   }) async {
-    if (baseUrl == null) return _demoDashboard(mode);
+    if (baseUrl == null && _configurationError == null) {
+      return _demoDashboard(mode);
+    }
+    _ensureConfigured();
 
     final token = authToken ?? await tokenProvider?.call();
     if (token == null || token.trim().isEmpty) {
       throw const AuthRequiredException();
     }
 
-    final endpoint = baseUrl!.resolve('/owner/dashboard');
+    final endpoint = _endpoint('owner/dashboard');
     final uri = endpoint.replace(
       queryParameters: {...endpoint.queryParameters, 'mode': mode.apiValue},
     );
@@ -355,7 +430,7 @@ class OwnerApi {
       final request = await client.getUrl(uri).timeout(requestTimeout);
       request.headers
         ..set(HttpHeaders.acceptHeader, ContentType.json.mimeType)
-        ..set(HttpHeaders.authorizationHeader, 'Bearer $token');
+        ..set(HttpHeaders.authorizationHeader, 'Bearer ${token.trim()}');
       final response = await request.close().timeout(requestTimeout);
       final body = await response
           .transform(utf8.decoder)
@@ -366,9 +441,9 @@ class OwnerApi {
         throw const AuthRequiredException();
       }
       if (response.statusCode < 200 || response.statusCode >= 300) {
-        throw HttpException(
-          'Dashboard request failed: ${response.statusCode}',
-          uri: uri,
+        throw ApiServerException(
+          operation: 'Dashboard request',
+          statusCode: response.statusCode,
         );
       }
       final decoded = jsonDecode(body);
@@ -376,9 +451,39 @@ class OwnerApi {
         throw const FormatException('Dashboard response must be an object');
       }
       return DashboardSnapshot.fromJson(decoded, requestedMode: mode);
+    } on ApiServerException {
+      rethrow;
+    } on IOException catch (error) {
+      throw ApiConnectionException(
+        'Could not reach the dashboard service: $error',
+      );
+    } on TimeoutException {
+      throw const ApiConnectionException(
+        'The dashboard service did not respond before the request timed out.',
+      );
     } finally {
       client.close(force: true);
     }
+  }
+
+  void _ensureConfigured() {
+    final error = _configurationError;
+    if (error != null) throw ApiConfigurationException(error);
+    if (baseUrl == null) {
+      throw const ApiConfigurationException(
+        'No live API endpoint is configured. Set RTS_API_BASE_URL.',
+      );
+    }
+  }
+
+  Uri _endpoint(String path) {
+    final base = baseUrl!;
+    final basePath = base.path.isEmpty
+        ? '/'
+        : base.path.endsWith('/')
+        ? base.path
+        : '${base.path}/';
+    return base.replace(path: basePath).resolve(path);
   }
 
   DashboardSnapshot _demoDashboard(TrackingMode mode) {
@@ -389,7 +494,7 @@ class OwnerApi {
           DashboardMetric(
             key: 'salesToday',
             label: 'Sales today',
-            value: '₪18,420',
+            value: 'â‚ª18,420',
           ),
           DashboardMetric(
             key: 'ordersToday',
@@ -414,7 +519,7 @@ class OwnerApi {
             online: true,
             updatedLabel: 'Updated just now',
             primaryLabel: 'Sales today',
-            primaryValue: '₪9,840',
+            primaryValue: 'â‚ª9,840',
           ),
           SiteSnapshot(
             id: 'business-mall',
@@ -422,7 +527,7 @@ class OwnerApi {
             online: true,
             updatedLabel: 'Updated 2 min ago',
             primaryLabel: 'Sales today',
-            primaryValue: '₪8,580',
+            primaryValue: 'â‚ª8,580',
             attention: '2 low-stock items',
           ),
           SiteSnapshot(
@@ -519,6 +624,29 @@ class OwnerApi {
       ),
     };
   }
+}
+
+String? validateApiBaseUrl(Uri? uri) {
+  if (uri == null) return null;
+  if (!uri.isAbsolute || uri.host.isEmpty) {
+    return 'RTS_API_BASE_URL must be an absolute URL with a host.';
+  }
+  if (uri.userInfo.isNotEmpty) {
+    return 'RTS_API_BASE_URL must not include credentials.';
+  }
+  if (uri.query.isNotEmpty || uri.fragment.isNotEmpty) {
+    return 'RTS_API_BASE_URL must not include a query or fragment.';
+  }
+  if (uri.scheme == 'https') return null;
+  if (uri.scheme == 'http' && _isLocalHost(uri.host)) return null;
+  return 'RTS_API_BASE_URL must use HTTPS for production endpoints.';
+}
+
+bool _isLocalHost(String host) {
+  final normalized = host.toLowerCase();
+  return normalized == 'localhost' ||
+      normalized == '127.0.0.1' ||
+      normalized == '::1';
 }
 
 String _requiredString(Map<String, dynamic> json, String key) {

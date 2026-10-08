@@ -4,13 +4,18 @@ workflows:
     max_build_duration: 60
     environment:
       flutter: stable
+      groups:
+        - rts_tracking_api
       android_signing:
         - rts_tracking_keystore
     scripts:
       - name: Install packages
         script: flutter pub get
       - name: Build signed Android App Bundle
-        script: flutter build appbundle --release
+        script: |
+          test -n "$RTS_API_BASE_URL"
+          flutter build appbundle --release \
+            --dart-define=RTS_API_BASE_URL="$RTS_API_BASE_URL"
     artifacts:
       - build/app/outputs/bundle/release/*.aab
 
@@ -21,6 +26,8 @@ workflows:
       app_store_connect: CityLogisticsASC
     environment:
       flutter: stable
+      groups:
+        - rts_tracking_api
       ios_signing:
         provisioning_profiles:
           - rts_tracking_app_store_codmagic
@@ -58,7 +65,12 @@ workflows:
       - name: Apply iOS signing profiles
         script: xcode-project use-profiles
       - name: Build signed IPA
-        script: xcode-project build-ipa --workspace ios/Runner.xcworkspace --scheme Runner
+        script: |
+          test -n "$RTS_API_BASE_URL"
+          flutter build ios --release \
+            --dart-define=RTS_API_BASE_URL="$RTS_API_BASE_URL" \
+            --no-codesign
+          xcode-project build-ipa --workspace ios/Runner.xcworkspace --scheme Runner
     artifacts:
       - build/ios/ipa/*.ipa
     publishing:

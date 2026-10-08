@@ -1,11 +1,11 @@
 {
-    "name": "rts_tracking",
-    "short_name": "rts_tracking",
+    "name": "RTS Tracking",
+    "short_name": "RTS",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#48115B",
+    "theme_color": "#48115B",
+    "description": "Owner monitoring for RTS Business and RTS Clinic.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [
