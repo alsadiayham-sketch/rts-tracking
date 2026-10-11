@@ -4,8 +4,8 @@ workflows:
     max_build_duration: 60
     environment:
       flutter: stable
-      groups:
-        - rts_tracking_api
+      vars:
+        RTS_API_BASE_URL: "https://rts-royal.pages.dev"
       android_signing:
         - rts_tracking_keystore
     scripts:
@@ -26,8 +26,8 @@ workflows:
       app_store_connect: CityLogisticsASC
     environment:
       flutter: stable
-      groups:
-        - rts_tracking_api
+      vars:
+        RTS_API_BASE_URL: "https://rts-royal.pages.dev"
       ios_signing:
         provisioning_profiles:
           - rts_tracking_app_store_codmagic

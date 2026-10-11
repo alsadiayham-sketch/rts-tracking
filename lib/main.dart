@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 
+import 'api_configuration.dart';
 import 'tracking_data.dart';
 
 void main() {
-  const configuredBaseUrl = String.fromEnvironment('RTS_API_BASE_URL');
+  final configuredBaseUrl = resolveApiBaseUrl();
   runApp(
     RtsTrackingApp(
       api: OwnerApi.fromConfiguredUrl(configuredBaseUrl),

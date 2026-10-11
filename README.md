@@ -5,8 +5,9 @@ Flutter owner-monitoring app for two operational modes:
 - **RTS Business**: sales, orders, store connectivity, stock alerts, and store-level status.
 - **RTS Clinic**: appointments, waiting patients, clinic connectivity, follow-ups, and clinic-level status.
 
-The app starts in clearly labeled demo mode unless a live endpoint is selected.
-Live mode always starts behind owner authentication.
+The reusable app widget can run with clearly labeled demo data for development
+and tests. Release builds start behind owner authentication and require an
+explicit API endpoint.
 
 ## Run and validate
 
@@ -21,10 +22,16 @@ Android release builds include the Internet permission required by the live API.
 
 ## Live API configuration
 
-Select a live API at build time:
+The production API base URL used by the CodeMagic release workflows is:
+
+```text
+https://rts-royal.pages.dev
+```
+
+Local and manually created native builds must provide the endpoint explicitly:
 
 ```powershell
-flutter run --dart-define=RTS_API_BASE_URL=https://api.example.com
+flutter run --dart-define=RTS_API_BASE_URL=https://rts-royal.pages.dev
 ```
 
 The value is a base URL, so a path is supported (for example,
@@ -32,9 +39,10 @@ The value is a base URL, so a path is supported (for example,
 `/owner/dashboard`. Production deployments must use HTTPS; plain HTTP is only
 accepted for local loopback testing.
 
-CodeMagic release workflows read the non-secret `RTS_API_BASE_URL` from the
-`rts_tracking_api` environment group and pass it with `--dart-define`. Do not
-put credentials or access tokens in the URL or source code.
+CodeMagic declares the non-secret production base URL in both release workflows
+and passes it with `--dart-define`. Missing configuration fails closed rather
+than silently connecting a development build to production. Do not put
+credentials or access tokens in the URL or source code.
 
 ### Owner login contract
 
