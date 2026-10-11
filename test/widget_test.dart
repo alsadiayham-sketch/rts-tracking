@@ -5,20 +5,39 @@ import 'package:rts_tracking/main.dart';
 import 'package:rts_tracking/tracking_data.dart';
 
 void main() {
-  testWidgets('shows an explicit Business demo dashboard', (
+  testWidgets('demo operating view exposes all five exception-led tabs', (
     WidgetTester tester,
   ) async {
     await tester.pumpWidget(const RtsTrackingApp(requireAuthentication: false));
     await tester.pumpAndSettle();
 
     expect(find.text('RTS Tracking'), findsOneWidget);
-    expect(find.text('Business overview'), findsOneWidget);
-    expect(find.text('Sales today'), findsWidgets);
-    expect(find.text('RTS Business Main Store'), findsOneWidget);
+    expect(find.text('Today'), findsWidgets);
+    expect(find.text('Decisions to make'), findsOneWidget);
     expect(find.text('Demo data'), findsOneWidget);
+    expect(find.text('Not available yet'), findsOneWidget);
+
+    await _selectTab(tester, 'Locations');
+    expect(find.byKey(const Key('location-search')), findsOneWidget);
+    expect(find.text('Offline / Unknown'), findsOneWidget);
+    expect(find.text('Snapshot freshness'), findsOneWidget);
+
+    await _selectTab(tester, 'Activity');
+    expect(find.byKey(const Key('activity-search')), findsOneWidget);
+    expect(find.text('Timeline'), findsOneWidget);
+
+    await _selectTab(tester, 'Alerts');
+    expect(find.text('Action order'), findsOneWidget);
+    expect(find.textContaining('Impact:'), findsWidgets);
+    expect(find.textContaining('Action:'), findsWidgets);
+
+    await _selectTab(tester, 'More');
+    expect(find.text('Security'), findsOneWidget);
+    expect(find.text('Data sources and availability'), findsOneWidget);
+    expect(find.text('Refresh behavior'), findsOneWidget);
   });
 
-  testWidgets('adapts dashboard content for Clinic locations', (
+  testWidgets('demo mode adapts to clinic aggregate-only language', (
     WidgetTester tester,
   ) async {
     await tester.pumpWidget(const RtsTrackingApp(requireAuthentication: false));
@@ -27,32 +46,48 @@ void main() {
     await tester.tap(find.text('RTS Clinic'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Clinic overview'), findsOneWidget);
-    expect(find.text('Patients waiting'), findsOneWidget);
-    expect(find.text('RTS Clinic North'), findsWidgets);
+    expect(find.text('Aggregate waiting count'), findsOneWidget);
     expect(find.text('Sales today'), findsNothing);
+
+    await _selectTab(tester, 'Activity');
+    expect(find.text('Aggregate-only activity'), findsOneWidget);
+    expect(
+      find.textContaining('patient names, medical notes, files, diagnoses'),
+      findsOneWidget,
+    );
   });
 
-  testWidgets('bottom navigation exposes locations, alerts, and settings', (
+  testWidgets('a location opens an operational detail sheet', (
     WidgetTester tester,
   ) async {
     await tester.pumpWidget(const RtsTrackingApp(requireAuthentication: false));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Locations'));
-    await tester.pump();
-    expect(find.text('Business stores'), findsOneWidget);
-    expect(find.text('RTS Business Warehouse'), findsOneWidget);
+    await _selectTab(tester, 'Locations');
+    final warehouse = find.text('RTS Business Warehouse');
+    await tester.drag(
+      find.byKey(const Key('tracking-scroll-view')),
+      const Offset(0, -520),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(warehouse);
+    await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Alerts'));
-    await tester.pump();
-    expect(find.text('RTS Business alerts'), findsOneWidget);
-    expect(find.text('Warehouse is offline'), findsOneWidget);
-
-    await tester.tap(find.text('Settings'));
-    await tester.pump();
-    expect(find.text('Authentication not connected'), findsOneWidget);
-    expect(find.text('Connectivity behavior'), findsOneWidget);
+    expect(find.text('Location details'), findsOneWidget);
+    expect(find.text('Status and freshness'), findsOneWidget);
+    expect(find.text('Licence and access'), findsOneWidget);
+    await tester.drag(
+      find.byKey(const Key('location-details-scroll')),
+      const Offset(0, -360),
+    );
+    await tester.pumpAndSettle();
+    await tester.drag(
+      find.byKey(const Key('location-details-scroll')),
+      const Offset(0, -360),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Portfolio context'), findsOneWidget);
+    expect(find.text('Shown on Today'), findsOneWidget);
   });
 
   testWidgets('supports a narrow viewport with 200 percent text scaling', (
@@ -72,7 +107,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(tester.takeException(), isNull);
-    expect(find.text('Business overview'), findsOneWidget);
+    expect(find.text('Today'), findsWidgets);
   });
 
   testWidgets('release-style startup requires login instead of demo mode', (
@@ -92,48 +127,50 @@ void main() {
     expect(find.text('Demo data'), findsNothing);
   });
 
-  testWidgets('live mode requires login and locks to the authenticated mode', (
-    WidgetTester tester,
-  ) async {
-    final api = _FakeOwnerApi(
-      loginSession: const OwnerSession(
-        token: 'clinic-token',
-        mode: TrackingMode.clinic,
-        organizationName: 'RTS Clinic Main',
-        displayName: 'Dr Ada',
-      ),
-      dashboard: _clinicDashboard,
-    );
-    final store = _MemoryOwnerSessionStore();
+  testWidgets(
+    'live mode locks the server-assigned product and clinic privacy',
+    (WidgetTester tester) async {
+      final api = _FakeOwnerApi(
+        loginSession: const OwnerSession(
+          token: 'clinic-token',
+          mode: TrackingMode.clinic,
+          organizationName: 'RTS Clinic Main',
+          displayName: 'Dr Ada',
+        ),
+        dashboard: _clinicDashboard,
+      );
+      final store = _MemoryOwnerSessionStore();
 
-    await tester.pumpWidget(RtsTrackingApp(api: api, sessionStore: store));
-    await tester.pumpAndSettle();
+      await tester.pumpWidget(RtsTrackingApp(api: api, sessionStore: store));
+      await tester.pumpAndSettle();
 
-    expect(find.text('Owner sign in'), findsOneWidget);
-    expect(find.text('Clinic overview'), findsNothing);
+      await tester.enterText(
+        find.byKey(const Key('owner-organization')),
+        'RTS Clinic Main',
+      );
+      await tester.enterText(
+        find.byKey(const Key('owner-username')),
+        'clinic-owner',
+      );
+      await tester.enterText(find.byKey(const Key('owner-password')), 'secret');
+      await tester.tap(find.text('Sign in'));
+      await tester.pumpAndSettle();
 
-    await tester.enterText(
-      find.byKey(const Key('owner-organization')),
-      'RTS Clinic Main',
-    );
-    await tester.enterText(
-      find.byKey(const Key('owner-username')),
-      'clinic-owner',
-    );
-    await tester.enterText(find.byKey(const Key('owner-password')), 'secret');
-    await tester.tap(find.text('Sign in'));
-    await tester.pumpAndSettle();
+      expect(find.text('Today'), findsWidgets);
+      expect(find.text('RTS Clinic · Dr Ada'), findsOneWidget);
+      expect(find.text('RTS Business'), findsNothing);
+      expect(api.requestedModes, [TrackingMode.clinic]);
+      expect(api.dashboardTokens, ['clinic-token']);
+      expect(store.session?.mode, TrackingMode.clinic);
 
-    expect(api.lastOrganizationName, 'RTS Clinic Main');
-    expect(api.lastUsername, 'clinic-owner');
-    expect(api.lastPassword, 'secret');
-    expect(find.text('Clinic overview'), findsOneWidget);
-    expect(find.byType(SegmentedButton<TrackingMode>), findsNothing);
-    expect(find.textContaining('RTS Clinic · Dr Ada'), findsOneWidget);
-    expect(api.requestedModes, [TrackingMode.clinic]);
-    expect(api.dashboardTokens, ['clinic-token']);
-    expect(store.session?.mode, TrackingMode.clinic);
-  });
+      await _selectTab(tester, 'More');
+      expect(find.text('Server-assigned RTS Clinic'), findsOneWidget);
+      expect(
+        find.textContaining('patient names, medical notes, files, diagnoses'),
+        findsOneWidget,
+      );
+    },
+  );
 
   testWidgets('logout clears the secure session and returns to login', (
     WidgetTester tester,
@@ -159,7 +196,13 @@ void main() {
     await tester.tap(find.text('Sign in'));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byTooltip('Sign out'));
+    await _selectTab(tester, 'More');
+    await tester.drag(
+      find.byKey(const Key('tracking-scroll-view')),
+      const Offset(0, -260),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('sign-out-button')));
     await tester.pumpAndSettle();
 
     expect(find.text('Owner sign in'), findsOneWidget);
@@ -195,6 +238,11 @@ void main() {
   );
 }
 
+Future<void> _selectTab(WidgetTester tester, String label) async {
+  await tester.tap(find.text(label).last);
+  await tester.pumpAndSettle();
+}
+
 class _MemoryOwnerSessionStore implements OwnerSessionStore {
   _MemoryOwnerSessionStore([this.session]);
 
@@ -228,21 +276,13 @@ class _FakeOwnerApi extends OwnerApi {
   final bool rejectDashboard;
   final List<TrackingMode> requestedModes = [];
   final List<String?> dashboardTokens = [];
-  String? lastUsername;
-  String? lastOrganizationName;
-  String? lastPassword;
 
   @override
   Future<OwnerSession> login(
     String organizationName,
     String username,
     String password,
-  ) async {
-    lastOrganizationName = organizationName;
-    lastUsername = username;
-    lastPassword = password;
-    return loginSession;
-  }
+  ) async => loginSession;
 
   @override
   Future<DashboardSnapshot> getDashboard(
@@ -258,9 +298,7 @@ class _FakeOwnerApi extends OwnerApi {
 
 const _businessDashboard = DashboardSnapshot(
   mode: TrackingMode.business,
-  metrics: [
-    DashboardMetric(key: 'salesToday', label: 'Sales today', value: '10'),
-  ],
+  metrics: [DashboardMetric(key: 'licence', label: 'Licence', value: 'Active')],
   sites: [],
   alerts: [],
   synchronizedLabel: 'Now',
@@ -272,12 +310,18 @@ const _clinicDashboard = DashboardSnapshot(
   metrics: [
     DashboardMetric(
       key: 'appointmentsToday',
-      label: 'Appointments',
+      label: 'Scheduled today',
       value: '8',
     ),
   ],
   sites: [],
   alerts: [],
   synchronizedLabel: 'Now',
+  dataAvailability: DataAvailability(
+    privacy: PrivacyScope(
+      scope: 'aggregate-only',
+      patientMedicalDetailsIncluded: false,
+    ),
+  ),
   isDemo: false,
 );

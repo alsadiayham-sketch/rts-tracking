@@ -150,6 +150,340 @@ void main() {
     );
   });
 
+  test('parses the v2 Business operating contract and availability gaps', () {
+    final dashboard = DashboardSnapshot.fromJson({
+      'contractVersion': 2,
+      'generatedAt': '2026-10-11T10:30:00.000Z',
+      'mode': 'business',
+      'metrics': [
+        {'key': 'licence', 'label': 'Licence', 'value': 'Active'},
+      ],
+      'sites': [
+        {
+          'id': 'business-main',
+          'name': 'RTS Business Main',
+          'online': false,
+          'updatedLabel': 'Live status unavailable',
+          'primaryLabel': 'Business licence',
+          'primaryValue': 'Active',
+        },
+      ],
+      'locations': [
+        {
+          'id': 'business-main',
+          'name': 'RTS Business Main',
+          'mode': 'business',
+          'status': 'unknown',
+          'online': false,
+          'updatedLabel': 'Live status unavailable',
+          'primaryLabel': 'Business licence',
+          'primaryValue': 'Active',
+          'telemetry': {
+            'available': false,
+            'status': 'unknown',
+            'detail': 'No heartbeat is published.',
+          },
+          'licence': {
+            'active': true,
+            'endsAt': '2027-10-11T00:00:00.000Z',
+            'lastCheckedAt': '2026-10-11T09:00:00.000Z',
+          },
+        },
+      ],
+      'alerts': <Object>[],
+      'synchronizedLabel': 'Owner data generated 2026-10-11',
+      'overview': {
+        'organization': {
+          'id': 'business-main',
+          'name': 'RTS Business Main',
+          'mode': 'business',
+        },
+        'licence': {'active': true},
+        'locations': {'total': 1, 'online': 0, 'unknown': 1},
+        'alerts': {'total': 0, 'critical': 0},
+        'staff': {'totalAccounts': 5, 'activeAccounts': 4, 'adminAccounts': 1},
+      },
+      'recentActivity': [
+        {
+          'id': 'credit-1',
+          'category': 'platform-messaging',
+          'type': 'credit-usage',
+          'title': 'Messaging credits used',
+          'detail': '3 messages · ₪1.50',
+          'level': 'info',
+          'occurredAt': '2026-10-11T10:00:00.000Z',
+          'source': 'rts-royal-d1',
+          'changes': {'messageDelta': -3},
+        },
+      ],
+      'auditLog': {
+        'completeness': 'partial',
+        'detail': 'Only platform events are available.',
+        'events': [
+          {
+            'id': 'audit-credit-1',
+            'category': 'platform-messaging',
+            'action': 'credit-usage',
+            'occurredAt': '2026-10-11T10:00:00.000Z',
+            'source': 'rts-royal-d1',
+            'changes': {'messageDelta': -3},
+          },
+        ],
+      },
+      'financialMetrics': {
+        'currency': 'ILS',
+        'businessRevenue': {
+          'available': false,
+          'value': null,
+          'reason': 'Business sales remain in the operational backend.',
+        },
+        'platformMessaging': {
+          'available': true,
+          'source': 'rts-royal-d1',
+          'messageBalance': 42,
+          'prepaidBalanceNis': 21.5,
+          'customerPriceNis': 0.5,
+          'platformCostNis': 0.2,
+          'updatedAt': '2026-10-11T10:00:00.000Z',
+        },
+      },
+      'operationalMetrics': {
+        'connectivity': {'available': false, 'status': 'unknown'},
+        'staff': {'totalAccounts': 5, 'activeAccounts': 4},
+        'sourceBackend': 'firestore',
+      },
+      'modeDetail': {
+        'kind': 'business',
+        'salesToday': {
+          'available': false,
+          'value': null,
+          'reason': 'Sales are not published.',
+        },
+      },
+      'dataAvailability': {
+        'available': ['licence', 'staff-counts'],
+        'unavailable': ['sales', 'inventory'],
+        'gaps': [
+          {
+            'key': 'business-operations',
+            'reason': 'Sales and inventory remain in the Business backend.',
+            'requiredTelemetry': 'Publish aggregate snapshots.',
+          },
+        ],
+        'privacy': {
+          'scope': 'aggregate-only',
+          'patientMedicalDetailsIncluded': false,
+          'unnecessaryPersonalDataIncluded': false,
+        },
+      },
+    }, requestedMode: TrackingMode.business);
+
+    expect(dashboard.contractVersion, 2);
+    expect(dashboard.locations.single.effectiveStatus, LocationStatus.unknown);
+    expect(dashboard.locations.single.licence.active, isTrue);
+    expect(dashboard.overview.staff.activeAccounts, 4);
+    expect(dashboard.financialMetrics.platformMessaging.messageBalance, 42);
+    expect(dashboard.modeDetail.metrics['salesToday']?.available, isFalse);
+    expect(dashboard.dataAvailability.gaps.single.key, 'business-operations');
+    expect(dashboard.auditLog.completeness, 'partial');
+    expect(dashboard.auditLog.events.single.type, 'credit-usage');
+  });
+
+  test('parses the v2 Clinic contract without retaining unsafe activity', () {
+    final dashboard = DashboardSnapshot.fromJson({
+      'contractVersion': 2,
+      'generatedAt': '2026-10-11T10:30:00.000Z',
+      'mode': 'clinic',
+      'metrics': [
+        {
+          'key': 'waitingCount',
+          'label': 'Patient Ada waiting',
+          'value': 'Sensitive diagnosis',
+        },
+        {'key': 'activeStaff', 'label': 'Patient list', 'value': '3'},
+      ],
+      'sites': [
+        {
+          'id': 'clinic-main',
+          'name': 'RTS Clinic Main',
+          'online': true,
+          'updatedLabel': 'Patient Ada checked in',
+          'primaryLabel': 'Latest diagnosis',
+          'primaryValue': 'Sensitive condition',
+          'attention': 'Patient Ada needs urgent review',
+        },
+      ],
+      'locations': [
+        {
+          'id': 'clinic-main',
+          'name': 'RTS Clinic Main',
+          'mode': 'clinic',
+          'online': true,
+          'updatedLabel': 'Heartbeat just now',
+          'primaryLabel': 'Clinic licence',
+          'primaryValue': 'Active',
+          'telemetry': {'available': false, 'status': 'unknown'},
+          'licence': {'active': true},
+        },
+      ],
+      'alerts': [
+        {
+          'id': 'licence-expired',
+          'title': 'Patient Ada needs urgent care',
+          'detail': 'Sensitive diagnosis',
+          'level': 'critical',
+        },
+      ],
+      'synchronizedLabel': 'Owner data generated 2026-10-11',
+      'recentActivity': [
+        {
+          'id': 'unsafe-medical-event',
+          'category': 'clinical',
+          'type': 'medical-note',
+          'title': 'Patient Ada received a diagnosis',
+          'detail': 'Sensitive clinical notes',
+          'level': 'warning',
+          'occurredAt': '2026-10-11T10:10:00.000Z',
+          'source': 'local-workspace',
+        },
+        {
+          'id': 'safe-licence-event',
+          'category': 'system',
+          'type': 'licence-check',
+          'title': 'Clinic licence checked',
+          'detail': 'Anything from the source is discarded for clinics.',
+          'level': 'info',
+          'occurredAt': 'Patient Ada had surgery',
+          'source': 'firestore-licence',
+        },
+      ],
+      'auditLog': {
+        'completeness': 'partial',
+        'detail': 'Patient Ada had a sensitive procedure.',
+        'events': <Object>[],
+      },
+      'financialMetrics': {
+        'currency': 'ILS',
+        'businessRevenue': {
+          'available': false,
+          'value': null,
+          'reason': 'Patient Ada paid for a sensitive procedure.',
+        },
+        'platformMessaging': {'available': false},
+      },
+      'operationalMetrics': {
+        'connectivity': {
+          'available': true,
+          'status': 'online',
+          'source': 'Patient Ada monitor',
+          'detail': 'Sensitive diagnosis',
+        },
+        'staff': {'totalAccounts': 3, 'activeAccounts': 3},
+        'sourceBackend': 'Patient Ada workspace',
+      },
+      'modeDetail': {
+        'kind': 'clinic',
+        'appointmentsToday': {
+          'available': false,
+          'value': null,
+          'reason': 'Patient Ada has an appointment.',
+        },
+        'patientMedicalDetailsIncluded': false,
+      },
+      'dataAvailability': {
+        'available': ['licence', 'operational-heartbeat'],
+        'unavailable': ['appointments', 'sessions'],
+        'gaps': [
+          {
+            'key': 'clinic-operations',
+            'reason': 'Patient Ada has a diagnosis.',
+            'requiredTelemetry': 'Upload Patient Ada records.',
+          },
+        ],
+        'privacy': {
+          'scope': 'Patient Ada private scope',
+          'patientMedicalDetailsIncluded': false,
+          'unnecessaryPersonalDataIncluded': false,
+        },
+      },
+    }, requestedMode: TrackingMode.clinic);
+
+    expect(dashboard.locations.single.telemetry.available, isFalse);
+    expect(dashboard.locations.single.effectiveStatus, LocationStatus.unknown);
+    expect(dashboard.locations.single.primaryLabel, 'Clinic licence');
+    expect(dashboard.locations.single.primaryValue, 'Active');
+    expect(dashboard.locations.single.attention, isNot(contains('Ada')));
+    expect(dashboard.alerts.single.title, 'Clinic licence is inactive');
+    expect(dashboard.alerts.single.detail, isNot(contains('diagnosis')));
+    expect(
+      dashboard.metrics.any(
+        (metric) =>
+            metric.label.contains('Ada') || metric.value.contains('diagnosis'),
+      ),
+      isFalse,
+    );
+    expect(
+      dashboard.financialMetrics.businessRevenue.reason,
+      isNot(contains('Ada')),
+    );
+    expect(dashboard.operationalMetrics.sourceBackend, isNull);
+    expect(
+      dashboard.modeDetail.metrics.values.single.reason,
+      isNot(contains('Ada')),
+    );
+    expect(
+      dashboard.dataAvailability.gaps.single.reason,
+      isNot(contains('Ada')),
+    );
+    expect(dashboard.dataAvailability.privacy.scope, 'aggregate-only');
+    expect(dashboard.auditLog.detail, isNot(contains('Ada')));
+    expect(dashboard.auditLog.detail, contains('Personal and medical records'));
+    expect(
+      dashboard.operationalMetrics.connectivity.source,
+      'RTS operational heartbeat',
+    );
+    expect(
+      dashboard.operationalMetrics.connectivity.detail,
+      isNot(contains('diagnosis')),
+    );
+    expect(dashboard.recentActivity, hasLength(1));
+    expect(dashboard.recentActivity.single.title, 'Licence checked');
+    expect(dashboard.recentActivity.single.source, 'RTS platform');
+    expect(dashboard.recentActivity.single.occurredAt, isNull);
+    expect(
+      dashboard.recentActivity.single.detail,
+      contains('Personal and medical records are not shown'),
+    );
+    expect(dashboard.dataAvailability.privacy.scope, 'aggregate-only');
+    expect(dashboard.dataAvailability.gaps.single.key, 'clinic-operations');
+  });
+
+  test('legacy dashboard responses remain compatible', () {
+    final dashboard = DashboardSnapshot.fromJson({
+      'mode': 'business',
+      'metrics': [
+        {'key': 'salesToday', 'label': 'Sales today', 'value': '₪100.00'},
+      ],
+      'sites': [
+        {
+          'id': 'legacy-store',
+          'name': 'Legacy Store',
+          'online': true,
+          'updatedLabel': 'Updated now',
+          'primaryLabel': 'Sales today',
+          'primaryValue': '₪100.00',
+        },
+      ],
+      'alerts': <Object>[],
+      'synchronizedLabel': 'Updated now',
+    }, requestedMode: TrackingMode.business);
+
+    expect(dashboard.contractVersion, 1);
+    expect(dashboard.locations.single.name, 'Legacy Store');
+    expect(dashboard.overview.locations.total, 1);
+    expect(dashboard.recentActivity, isEmpty);
+  });
+
   test('login rejects a mode outside the supported products', () {
     expect(
       () => OwnerSession.fromLoginJson({

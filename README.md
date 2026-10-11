@@ -122,6 +122,24 @@ Expected dashboard response:
 Alert levels are `info`, `warning`, and `critical`. A response whose `mode`
 does not match the authenticated/requested mode is rejected.
 
+### Owner operating contract v2
+
+The app remains compatible with the legacy response above. When
+`contractVersion: 2` is present, it also reads:
+
+- `overview`, `locations`, licence, heartbeat/connectivity, staff, and source
+  freshness for exception-led location health.
+- `recentActivity` and `auditLog` for the Activity timeline. Audit completeness
+  is shown honestly; raw change objects are never rendered.
+- `financialMetrics`, `operationalMetrics`, `modeDetail`, and
+  `dataAvailability` so unavailable capabilities are described with their
+  source reason rather than replaced with invented values.
+
+Clinic activity is additionally fail-closed in the client: only known
+platform/licence event types are retained, and their details are replaced with
+aggregate-only copy. Patient names, medical notes, files, diagnoses, and
+session details are never rendered.
+
 ## Connectivity behavior
 
 - 12-second request, response, and body timeouts.
