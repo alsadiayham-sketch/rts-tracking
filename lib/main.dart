@@ -296,7 +296,7 @@ class _OwnerLoginScreenState extends State<OwnerLoginScreen> {
                           controller: organizationNameController,
                           textInputAction: TextInputAction.next,
                           decoration: const InputDecoration(
-                            labelText: 'Business or clinic name',
+                            labelText: 'Business / Clinic ID or name',
                             prefixIcon: Icon(Icons.business_outlined),
                           ),
                           validator: (value) =>
