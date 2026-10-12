@@ -405,6 +405,7 @@ class FinancialMetrics {
   const FinancialMetrics({
     this.currency,
     this.businessRevenue = const AvailabilityValue(available: false),
+    this.sourceApplication = const SourceFinancialMetrics(),
     this.platformMessaging = const PlatformMessaging(available: false),
   });
 
@@ -416,6 +417,9 @@ class FinancialMetrics {
       businessRevenue: revenue == null
           ? const AvailabilityValue(available: false)
           : AvailabilityValue.fromJson(revenue),
+      sourceApplication: SourceFinancialMetrics.fromJson(
+        _optionalObject(json, 'sourceApplication'),
+      ),
       platformMessaging: PlatformMessaging.fromJson(
         _optionalObject(json, 'platformMessaging'),
       ),
@@ -424,13 +428,93 @@ class FinancialMetrics {
 
   final String? currency;
   final AvailabilityValue businessRevenue;
+  final SourceFinancialMetrics sourceApplication;
   final PlatformMessaging platformMessaging;
+}
+
+class SourceFinancialMetrics {
+  const SourceFinancialMetrics({
+    this.available = false,
+    this.source,
+    this.generatedAt,
+    this.metrics = const {},
+  });
+
+  factory SourceFinancialMetrics.fromJson(Map<String, dynamic>? json) {
+    if (json == null) return const SourceFinancialMetrics();
+    final metrics = <String, AvailabilityValue>{};
+    for (final entry in json.entries) {
+      if (const {'available', 'source', 'generatedAt'}.contains(entry.key)) {
+        continue;
+      }
+      if (entry.value is Map<String, dynamic>) {
+        final value = entry.value as Map<String, dynamic>;
+        if (value.containsKey('available')) {
+          metrics[entry.key] = AvailabilityValue.fromJson(value);
+        }
+      }
+    }
+    return SourceFinancialMetrics(
+      available: json['available'] == true,
+      source: _optionalString(json, 'source'),
+      generatedAt: _optionalTimestamp(json, 'generatedAt'),
+      metrics: Map.unmodifiable(metrics),
+    );
+  }
+
+  final bool available;
+  final String? source;
+  final String? generatedAt;
+  final Map<String, AvailabilityValue> metrics;
+}
+
+class SourceHealth {
+  const SourceHealth({
+    this.available = false,
+    this.source,
+    this.generatedAt,
+    this.appVersion,
+    this.metrics = const {},
+  });
+
+  factory SourceHealth.fromJson(Map<String, dynamic>? json) {
+    if (json == null) return const SourceHealth();
+    final rawMetrics = _optionalObject(json, 'metrics') ?? const {};
+    const allowed = {
+      'terminalCount',
+      'activeTerminalCount',
+      'pendingSyncCount',
+      'failedSyncCount',
+      'databaseHealthy',
+      'syncHealthy',
+      'backupHealthy',
+    };
+    return SourceHealth(
+      available: json['available'] == true,
+      source: _optionalString(json, 'source'),
+      generatedAt: _optionalTimestamp(json, 'generatedAt'),
+      appVersion: _optionalString(json, 'appVersion'),
+      metrics: Map.unmodifiable({
+        for (final entry in rawMetrics.entries)
+          if (allowed.contains(entry.key) &&
+              (entry.value is bool || entry.value is num))
+            entry.key: entry.value,
+      }),
+    );
+  }
+
+  final bool available;
+  final String? source;
+  final String? generatedAt;
+  final String? appVersion;
+  final Map<String, Object> metrics;
 }
 
 class OperationalMetrics {
   const OperationalMetrics({
     this.connectivity = const ConnectivityInfo.unavailable(),
     this.staff = const StaffSummary(),
+    this.health = const SourceHealth(),
     this.sourceBackend,
   });
 
@@ -441,12 +525,14 @@ class OperationalMetrics {
         _optionalObject(json, 'connectivity'),
       ),
       staff: StaffSummary.fromJson(_optionalObject(json, 'staff')),
+      health: SourceHealth.fromJson(_optionalObject(json, 'health')),
       sourceBackend: _optionalString(json, 'sourceBackend'),
     );
   }
 
   final ConnectivityInfo connectivity;
   final StaffSummary staff;
+  final SourceHealth health;
   final String? sourceBackend;
 }
 
@@ -587,13 +673,24 @@ class ActivityEvent {
 }
 
 class AuditLog {
-  const AuditLog({this.completeness, this.detail, this.events = const []});
+  const AuditLog({
+    this.completeness,
+    this.detail,
+    this.eventCounts = const {},
+    this.events = const [],
+  });
 
   factory AuditLog.fromJson(Map<String, dynamic>? json) {
     if (json == null) return const AuditLog();
     return AuditLog(
       completeness: _optionalString(json, 'completeness'),
       detail: _optionalString(json, 'detail'),
+      eventCounts: Map.unmodifiable({
+        for (final entry
+            in (_optionalObject(json, 'eventCounts') ?? const {}).entries)
+          if (entry.value is int && (entry.value as int) >= 0)
+            entry.key: entry.value as int,
+      }),
       events: _objectListOrEmpty(
         json,
         'events',
@@ -603,10 +700,16 @@ class AuditLog {
 
   final String? completeness;
   final String? detail;
+  final Map<String, int> eventCounts;
   final List<ActivityEvent> events;
 
   AuditLog withEvents(List<ActivityEvent> value) {
-    return AuditLog(completeness: completeness, detail: detail, events: value);
+    return AuditLog(
+      completeness: completeness,
+      detail: detail,
+      eventCounts: eventCounts,
+      events: value,
+    );
   }
 }
 
@@ -725,6 +828,9 @@ class DashboardSnapshot {
               completeness: rawAuditLog.completeness,
               detail:
                   'Only aggregate platform and system activity is shown. Personal and medical records are excluded.',
+              eventCounts: _privacySafeClinicEventCounts(
+                rawAuditLog.eventCounts,
+              ),
               events: _privacySafeActivity(rawAuditLog.events, responseMode),
             )
           : rawAuditLog.withEvents(
@@ -1267,11 +1373,28 @@ const _businessDemo = DashboardSnapshot(
       source: 'firestore-licence',
     ),
   ],
+  auditLog: AuditLog(
+    completeness: 'aggregate-only',
+    detail: 'Privacy-safe source counters and platform activity are available.',
+    eventCounts: {
+      'salesCompleted': 146,
+      'returnsCompleted': 3,
+      'inventoryAdjustments': 6,
+      'syncsSucceeded': 24,
+    },
+  ),
   financialMetrics: FinancialMetrics(
     currency: 'ILS',
-    businessRevenue: AvailabilityValue(
-      available: false,
-      reason: 'Sales are represented by demo data only.',
+    businessRevenue: AvailabilityValue(available: true, value: 18420),
+    sourceApplication: SourceFinancialMetrics(
+      available: true,
+      source: 'RTS Business aggregate telemetry',
+      generatedAt: '2026-10-11T11:59:00.000Z',
+      metrics: {
+        'revenueToday': AvailabilityValue(available: true, value: 18420),
+        'averageOrderValue': AvailabilityValue(available: true, value: 126.16),
+        'refundsToday': AvailabilityValue(available: true, value: 320),
+      },
     ),
     platformMessaging: PlatformMessaging(
       available: true,
@@ -1291,11 +1414,34 @@ const _businessDemo = DashboardSnapshot(
       source: 'source-application-heartbeat',
     ),
     staff: StaffSummary(totalAccounts: 9, activeAccounts: 8, adminAccounts: 2),
+    health: SourceHealth(
+      available: true,
+      source: 'RTS Business aggregate telemetry',
+      generatedAt: '2026-10-11T11:59:00.000Z',
+      appVersion: '4.0.8',
+      metrics: {
+        'terminalCount': 3,
+        'activeTerminalCount': 2,
+        'pendingSyncCount': 0,
+        'failedSyncCount': 0,
+        'databaseHealthy': true,
+        'syncHealthy': true,
+        'backupHealthy': true,
+      },
+    ),
     sourceBackend: 'demo-source',
   ),
   modeDetail: ModeDetail(
     kind: 'business',
     metrics: {
+      'salesToday': AvailabilityValue(available: true, value: 18420),
+      'ordersToday': AvailabilityValue(available: true, value: 146),
+      'averageOrderValue': AvailabilityValue(available: true, value: 126.16),
+      'lowStockItems': AvailabilityValue(available: true, value: 2),
+      'inventoryUnits': AvailabilityValue(available: true, value: 4820),
+      'returnsToday': AvailabilityValue(available: true, value: 3),
+      'refundsToday': AvailabilityValue(available: true, value: 320),
+      'damageUnitsToday': AvailabilityValue(available: true, value: 1),
       'inventoryValue': AvailabilityValue(
         available: false,
         reason: 'Inventory value is not included in the demo source.',
@@ -1495,11 +1641,31 @@ const _clinicDemo = DashboardSnapshot(
       source: 'firestore-licence',
     ),
   ],
+  auditLog: AuditLog(
+    completeness: 'aggregate-only',
+    detail: 'Privacy-safe source counters and platform activity are available.',
+    eventCounts: {
+      'appointmentsCreated': 27,
+      'sessionsCompleted': 18,
+      'paymentsRecorded': 21,
+      'followUpsCreated': 2,
+      'syncsSucceeded': 24,
+    },
+  ),
   financialMetrics: FinancialMetrics(
     currency: 'ILS',
     businessRevenue: AvailabilityValue(
       available: false,
       reason: 'Clinic financial totals are not included in the demo source.',
+    ),
+    sourceApplication: SourceFinancialMetrics(
+      available: true,
+      source: 'RTS Clinic aggregate telemetry',
+      generatedAt: '2026-10-11T11:59:00.000Z',
+      metrics: {
+        'revenueToday': AvailabilityValue(available: true, value: 6450),
+        'outstandingBalance': AvailabilityValue(available: true, value: 3180),
+      },
     ),
     platformMessaging: PlatformMessaging(
       available: true,
@@ -1523,6 +1689,21 @@ const _clinicDemo = DashboardSnapshot(
       activeAccounts: 10,
       adminAccounts: 2,
     ),
+    health: SourceHealth(
+      available: true,
+      source: 'RTS Clinic aggregate telemetry',
+      generatedAt: '2026-10-11T11:59:00.000Z',
+      appVersion: '1.0.11',
+      metrics: {
+        'terminalCount': 3,
+        'activeTerminalCount': 2,
+        'pendingSyncCount': 0,
+        'failedSyncCount': 0,
+        'databaseHealthy': true,
+        'syncHealthy': true,
+        'backupHealthy': true,
+      },
+    ),
     sourceBackend: 'demo-source',
   ),
   modeDetail: ModeDetail(
@@ -1530,7 +1711,12 @@ const _clinicDemo = DashboardSnapshot(
     metrics: {
       'appointmentsToday': AvailabilityValue(available: true, value: 27),
       'waitingCount': AvailabilityValue(available: true, value: 4),
+      'completedSessionsToday': AvailabilityValue(available: true, value: 18),
       'followUpsDue': AvailabilityValue(available: true, value: 2),
+      'collectionsToday': AvailabilityValue(available: true, value: 6450),
+      'outstandingInsurance': AvailabilityValue(available: true, value: 3180),
+      'openSessions': AvailabilityValue(available: true, value: 5),
+      'activeAccounts': AvailabilityValue(available: true, value: 10),
     },
     patientMedicalDetailsIncluded: false,
   ),
@@ -1705,12 +1891,25 @@ String _clinicSynchronizationLabel(String? generatedAt) {
 
 FinancialMetrics _privacySafeFinancialMetrics(FinancialMetrics metrics) {
   final messaging = metrics.platformMessaging;
+  const safeFinancialKeys = {'revenueToday', 'outstandingBalance'};
   return FinancialMetrics(
     currency: metrics.currency == 'ILS' ? 'ILS' : null,
     businessRevenue: const AvailabilityValue(
       available: false,
       reason:
           'Clinic financial totals remain local and are not published to Tracking.',
+    ),
+    sourceApplication: SourceFinancialMetrics(
+      available: metrics.sourceApplication.available,
+      source: metrics.sourceApplication.available
+          ? 'RTS Clinic aggregate telemetry'
+          : null,
+      generatedAt: null,
+      metrics: Map.unmodifiable({
+        for (final entry in metrics.sourceApplication.metrics.entries)
+          if (safeFinancialKeys.contains(entry.key))
+            entry.key: _privacySafeAggregateValue(entry.value),
+      }),
     ),
     platformMessaging: PlatformMessaging(
       available: messaging.available,
@@ -1732,16 +1931,14 @@ ModeDetail _privacySafeModeDetail(ModeDetail detail) {
     'followUpsDue',
     'collectionsToday',
     'outstandingInsurance',
+    'openSessions',
+    'activeAccounts',
   };
   return ModeDetail(
     kind: 'clinic',
     metrics: Map.unmodifiable({
       for (final key in detail.metrics.keys.where(safeKeys.contains))
-        key: const AvailabilityValue(
-          available: false,
-          reason:
-              'This aggregate clinic metric is not published to Tracking yet.',
-        ),
+        key: _privacySafeAggregateValue(detail.metrics[key]!),
     }),
     patientMedicalDetailsIncluded: false,
   );
@@ -1755,6 +1952,9 @@ DataAvailability _privacySafeDataAvailability(DataAvailability availability) {
     'platform-messaging-balance',
     'platform-messaging-ledger',
     'operational-heartbeat',
+    'source-health',
+    'source-financial-aggregates',
+    'aggregate-event-counters',
     'appointments',
     'queue',
     'sessions',
@@ -1851,10 +2051,58 @@ OperationalMetrics _privacySafeOperationalMetrics(OperationalMetrics metrics) {
   return OperationalMetrics(
     connectivity: _privacySafeConnectivity(metrics.connectivity),
     staff: metrics.staff,
+    health: SourceHealth(
+      available: metrics.health.available,
+      source: metrics.health.available
+          ? 'RTS Clinic aggregate telemetry'
+          : null,
+      generatedAt: metrics.health.generatedAt,
+      appVersion: _validatedAppVersion(metrics.health.appVersion),
+      metrics: metrics.health.metrics,
+    ),
     sourceBackend: safeBackends.contains(metrics.sourceBackend)
         ? metrics.sourceBackend
         : null,
   );
+}
+
+AvailabilityValue _privacySafeAggregateValue(AvailabilityValue value) {
+  final safeValue = value.value;
+  if (value.available && (safeValue is num || safeValue is bool)) {
+    return AvailabilityValue(available: true, value: safeValue);
+  }
+  return const AvailabilityValue(
+    available: false,
+    reason: 'This aggregate metric is not available from the connected source.',
+  );
+}
+
+Map<String, int> _privacySafeClinicEventCounts(Map<String, int> counts) {
+  const safeKeys = {
+    'auditEvents',
+    'warningEvents',
+    'errorEvents',
+    'loginsSucceeded',
+    'loginsFailed',
+    'syncsSucceeded',
+    'syncsFailed',
+    'backupsSucceeded',
+    'backupsFailed',
+    'appointmentsCreated',
+    'appointmentsCancelled',
+    'sessionsCompleted',
+    'paymentsRecorded',
+    'followUpsCreated',
+  };
+  return Map.unmodifiable({
+    for (final entry in counts.entries)
+      if (safeKeys.contains(entry.key)) entry.key: entry.value,
+  });
+}
+
+String? _validatedAppVersion(String? value) {
+  if (value == null || value.length > 64) return null;
+  return RegExp(r'^\d{1,5}\.\d{1,5}\.\d{1,5}$').hasMatch(value) ? value : null;
 }
 
 List<SiteSnapshot> _contractSafeLocations(

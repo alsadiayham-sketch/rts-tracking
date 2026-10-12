@@ -219,6 +219,11 @@ void main() {
       'auditLog': {
         'completeness': 'partial',
         'detail': 'Only platform events are available.',
+        'eventCounts': {
+          'salesCompleted': 12,
+          'returnsCompleted': 2,
+          'inventoryAdjustments': 3,
+        },
         'events': [
           {
             'id': 'audit-credit-1',
@@ -232,10 +237,14 @@ void main() {
       },
       'financialMetrics': {
         'currency': 'ILS',
-        'businessRevenue': {
-          'available': false,
-          'value': null,
-          'reason': 'Business sales remain in the operational backend.',
+        'businessRevenue': {'available': true, 'value': 1200.5},
+        'sourceApplication': {
+          'available': true,
+          'source': 'rts-business-pos',
+          'generatedAt': '2026-10-11T10:29:00.000Z',
+          'revenueToday': {'available': true, 'value': 1200.5},
+          'averageOrderValue': {'available': true, 'value': 100.04},
+          'refundsToday': {'available': true, 'value': 25.5},
         },
         'platformMessaging': {
           'available': true,
@@ -250,15 +259,24 @@ void main() {
       'operationalMetrics': {
         'connectivity': {'available': false, 'status': 'unknown'},
         'staff': {'totalAccounts': 5, 'activeAccounts': 4},
+        'health': {
+          'available': true,
+          'source': 'rts-business-pos',
+          'generatedAt': '2026-10-11T10:29:00.000Z',
+          'appVersion': '4.0.8',
+          'metrics': {
+            'terminalCount': 2,
+            'activeTerminalCount': 1,
+            'databaseHealthy': true,
+            'syncHealthy': false,
+            'unexpectedFreeText': 'Private value',
+          },
+        },
         'sourceBackend': 'firestore',
       },
       'modeDetail': {
         'kind': 'business',
-        'salesToday': {
-          'available': false,
-          'value': null,
-          'reason': 'Sales are not published.',
-        },
+        'salesToday': {'available': true, 'value': 1200.5},
       },
       'dataAvailability': {
         'available': ['licence', 'staff-counts'],
@@ -283,7 +301,22 @@ void main() {
     expect(dashboard.locations.single.licence.active, isTrue);
     expect(dashboard.overview.staff.activeAccounts, 4);
     expect(dashboard.financialMetrics.platformMessaging.messageBalance, 42);
-    expect(dashboard.modeDetail.metrics['salesToday']?.available, isFalse);
+    expect(dashboard.modeDetail.metrics['salesToday']?.available, isTrue);
+    expect(
+      dashboard
+          .financialMetrics
+          .sourceApplication
+          .metrics['averageOrderValue']
+          ?.value,
+      100.04,
+    );
+    expect(dashboard.operationalMetrics.health.appVersion, '4.0.8');
+    expect(dashboard.operationalMetrics.health.metrics['syncHealthy'], isFalse);
+    expect(
+      dashboard.operationalMetrics.health.metrics,
+      isNot(contains('unexpectedFreeText')),
+    );
+    expect(dashboard.auditLog.eventCounts['salesCompleted'], 12);
     expect(dashboard.dataAvailability.gaps.single.key, 'business-operations');
     expect(dashboard.auditLog.completeness, 'partial');
     expect(dashboard.auditLog.events.single.type, 'credit-usage');
@@ -360,6 +393,11 @@ void main() {
       'auditLog': {
         'completeness': 'partial',
         'detail': 'Patient Ada had a sensitive procedure.',
+        'eventCounts': {
+          'sessionsCompleted': 7,
+          'paymentsRecorded': 6,
+          'patientAdaDiagnoses': 99,
+        },
         'events': <Object>[],
       },
       'financialMetrics': {
@@ -368,6 +406,14 @@ void main() {
           'available': false,
           'value': null,
           'reason': 'Patient Ada paid for a sensitive procedure.',
+        },
+        'sourceApplication': {
+          'available': true,
+          'source': 'Patient Ada payment source',
+          'generatedAt': '2026-10-11T10:29:00.000Z',
+          'revenueToday': {'available': true, 'value': 850},
+          'outstandingBalance': {'available': true, 'value': 420},
+          'patientAdaBalance': {'available': true, 'value': 999},
         },
         'platformMessaging': {'available': false},
       },
@@ -379,19 +425,35 @@ void main() {
           'detail': 'Sensitive diagnosis',
         },
         'staff': {'totalAccounts': 3, 'activeAccounts': 3},
+        'health': {
+          'available': true,
+          'source': 'Patient Ada monitor',
+          'generatedAt': '2026-10-11T10:29:00.000Z',
+          'appVersion': 'Patient Ada diagnosis',
+          'metrics': {
+            'terminalCount': 1,
+            'activeTerminalCount': 1,
+            'databaseHealthy': true,
+            'patientAdaStatus': 1,
+          },
+        },
         'sourceBackend': 'Patient Ada workspace',
       },
       'modeDetail': {
         'kind': 'clinic',
-        'appointmentsToday': {
-          'available': false,
-          'value': null,
-          'reason': 'Patient Ada has an appointment.',
-        },
+        'appointmentsToday': {'available': true, 'value': 12},
+        'collectionsToday': {'available': true, 'value': 850},
+        'patientAdaTreatments': {'available': true, 'value': 4},
         'patientMedicalDetailsIncluded': false,
       },
       'dataAvailability': {
-        'available': ['licence', 'operational-heartbeat'],
+        'available': [
+          'licence',
+          'operational-heartbeat',
+          'source-health',
+          'source-financial-aggregates',
+          'aggregate-event-counters',
+        ],
         'unavailable': ['appointments', 'sessions'],
         'gaps': [
           {
@@ -427,15 +489,48 @@ void main() {
       isNot(contains('Ada')),
     );
     expect(dashboard.operationalMetrics.sourceBackend, isNull);
+    expect(dashboard.modeDetail.metrics['appointmentsToday']?.value, 12);
     expect(
-      dashboard.modeDetail.metrics.values.single.reason,
-      isNot(contains('Ada')),
+      dashboard.modeDetail.metrics,
+      isNot(contains('patientAdaTreatments')),
     );
+    expect(
+      dashboard
+          .financialMetrics
+          .sourceApplication
+          .metrics['revenueToday']
+          ?.value,
+      850,
+    );
+    expect(
+      dashboard.financialMetrics.sourceApplication.metrics,
+      isNot(contains('patientAdaBalance')),
+    );
+    expect(dashboard.operationalMetrics.health.metrics['terminalCount'], 1);
+    expect(dashboard.operationalMetrics.health.appVersion, isNull);
+    expect(
+      dashboard.operationalMetrics.health.metrics,
+      isNot(contains('patientAdaStatus')),
+    );
+    expect(dashboard.auditLog.eventCounts['sessionsCompleted'], 7);
+    expect(
+      dashboard.auditLog.eventCounts,
+      isNot(contains('patientAdaDiagnoses')),
+    );
+    expect(dashboard.financialMetrics.sourceApplication.generatedAt, isNull);
     expect(
       dashboard.dataAvailability.gaps.single.reason,
       isNot(contains('Ada')),
     );
     expect(dashboard.dataAvailability.privacy.scope, 'aggregate-only');
+    expect(
+      dashboard.dataAvailability.available,
+      containsAll([
+        'source-health',
+        'source-financial-aggregates',
+        'aggregate-event-counters',
+      ]),
+    );
     expect(dashboard.auditLog.detail, isNot(contains('Ada')));
     expect(dashboard.auditLog.detail, contains('Personal and medical records'));
     expect(

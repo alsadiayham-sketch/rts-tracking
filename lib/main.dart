@@ -738,8 +738,39 @@ class _TrackingHomeState extends State<TrackingHome> {
     final source = data.operationalMetrics.sourceBackend;
     final messageBalance =
         data.financialMetrics.platformMessaging.messageBalance;
+    final publishedModeMetrics = data.modeDetail.metrics.entries
+        .where((entry) => entry.value.available)
+        .toList(growable: false);
+    final availableModeMetrics = publishedModeMetrics.isNotEmpty
+        ? publishedModeMetrics
+        : data.metrics
+              .where(
+                (metric) => _operatingMetricKeys(mode).contains(metric.key),
+              )
+              .map(
+                (metric) => MapEntry(
+                  metric.key,
+                  AvailabilityValue(available: true, value: metric.value),
+                ),
+              )
+              .toList(growable: false);
     final unavailableModeMetrics = data.modeDetail.metrics.entries
         .where((entry) => !entry.value.available && entry.value.reason != null)
+        .toList(growable: false);
+    final sourceFinancials = data
+        .financialMetrics
+        .sourceApplication
+        .metrics
+        .entries
+        .where((entry) => entry.value.available)
+        .toList(growable: false);
+    final sourceHealth = data.operationalMetrics.health;
+    final accountMetrics = data.metrics
+        .where(
+          (metric) =>
+              !_operatingMetricKeys(mode).contains(metric.key) &&
+              (metric.key != 'messageCredits' || messageBalance == null),
+        )
         .toList(growable: false);
 
     return Column(
@@ -793,30 +824,96 @@ class _TrackingHomeState extends State<TrackingHome> {
             ),
           ),
         const SizedBox(height: 16),
-        const _SectionHeading(title: 'Operational and financial pulse'),
+        _SectionHeading(
+          title: mode == TrackingMode.business
+              ? 'Business performance'
+              : 'Clinic operations',
+          supporting: availableModeMetrics.isEmpty
+              ? 'Awaiting aggregate telemetry'
+              : '${availableModeMetrics.length} live aggregate metrics',
+        ),
+        const SizedBox(height: 8),
+        if (availableModeMetrics.isEmpty)
+          _EmptyState(
+            icon: Icons.query_stats_outlined,
+            title: 'No live operating totals yet',
+            detail:
+                'Open the latest ${mode.displayName} desktop app to publish its first privacy-safe aggregate snapshot.',
+          )
+        else
+          _DataPanel(
+            children: availableModeMetrics
+                .map(
+                  (entry) => _KeyValueRow(
+                    label: _modeMetricLabel(entry.key),
+                    value: _formatAggregateValue(
+                      entry.key,
+                      entry.value.value,
+                      data.financialMetrics.currency,
+                    ),
+                    detail: 'Aggregate only · ${data.synchronizedLabel}',
+                  ),
+                )
+                .toList(growable: false),
+          ),
+        if (sourceFinancials.isNotEmpty) ...[
+          const SizedBox(height: 20),
+          _SectionHeading(
+            title: 'Financial position',
+            supporting:
+                'Source: ${data.financialMetrics.sourceApplication.source ?? mode.displayName}',
+          ),
+          const SizedBox(height: 8),
+          _DataPanel(
+            children: sourceFinancials
+                .map(
+                  (entry) => _KeyValueRow(
+                    label: _sourceFinancialLabel(entry.key, mode),
+                    value: _formatAggregateValue(
+                      entry.key,
+                      entry.value.value,
+                      data.financialMetrics.currency,
+                    ),
+                    detail:
+                        'Generated ${formatTimestamp(data.financialMetrics.sourceApplication.generatedAt)}',
+                  ),
+                )
+                .toList(growable: false),
+          ),
+        ],
+        const SizedBox(height: 20),
+        const _SectionHeading(title: 'System and account health'),
         const SizedBox(height: 8),
         _DataPanel(
           children: [
-            ...data.metrics
-                .take(4)
-                .map(
-                  (metric) =>
-                      _KeyValueRow(label: metric.label, value: metric.value),
-                ),
-            if (messageBalance != null)
-              _KeyValueRow(
-                label: 'Messaging credits',
-                value: '$messageBalance',
-                detail:
-                    'Source: ${data.financialMetrics.platformMessaging.source ?? 'not published'}',
-              ),
+            ...accountMetrics.map(
+              (metric) =>
+                  _KeyValueRow(label: metric.label, value: metric.value),
+            ),
             if (data.overview.staff.activeAccounts != null)
               _KeyValueRow(
                 label: 'Active staff accounts',
                 value: '${data.overview.staff.activeAccounts}',
                 detail: data.overview.staff.totalAccounts == null
                     ? null
-                    : '${data.overview.staff.totalAccounts} total accounts',
+                    : '${data.overview.staff.totalAccounts} total · ${data.overview.staff.adminAccounts ?? 0} administrators',
+              ),
+            if (sourceHealth.available)
+              ...sourceHealth.metrics.entries.map(
+                (entry) => _KeyValueRow(
+                  label: _healthMetricLabel(entry.key),
+                  value: _formatHealthValue(entry.value),
+                  detail: sourceHealth.appVersion == null
+                      ? null
+                      : '${mode.displayName} ${sourceHealth.appVersion}',
+                ),
+              ),
+            if (messageBalance != null)
+              _KeyValueRow(
+                label: 'Messaging credits',
+                value: '$messageBalance',
+                detail:
+                    '₪${data.financialMetrics.platformMessaging.prepaidBalanceNis?.toStringAsFixed(2) ?? '0.00'} prepaid · source ${data.financialMetrics.platformMessaging.source ?? 'not published'}',
               ),
             if (source != null)
               _KeyValueRow(
@@ -994,6 +1091,9 @@ class _TrackingHomeState extends State<TrackingHome> {
           _categoryLabel(event.category) == activityFilter;
       return matchesQuery && matchesFilter;
     }).toList();
+    final eventCounts = data.auditLog.eventCounts.entries
+        .where((entry) => entry.value > 0)
+        .toList(growable: false);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1018,6 +1118,26 @@ class _TrackingHomeState extends State<TrackingHome> {
             color: Theme.of(context).colorScheme.secondary,
           ),
           const SizedBox(height: 16),
+        ],
+        if (eventCounts.isNotEmpty) ...[
+          _SectionHeading(
+            title: 'Aggregate activity totals',
+            supporting: '${eventCounts.length} active counters',
+          ),
+          const SizedBox(height: 8),
+          _DataPanel(
+            children: eventCounts
+                .map(
+                  (entry) => _KeyValueRow(
+                    label: _eventCounterLabel(entry.key),
+                    value: '${entry.value}',
+                    detail:
+                        'Aggregate count; no record-level details are uploaded.',
+                  ),
+                )
+                .toList(growable: false),
+          ),
+          const SizedBox(height: 20),
         ],
         TextField(
           key: const Key('activity-search'),
@@ -1883,6 +2003,40 @@ class _LocationDetailsSheet extends StatelessWidget {
               detail: 'A licence check is not a live heartbeat.',
             ),
             const SizedBox(height: 20),
+            if (dashboard.modeDetail.metrics.values.any(
+              (metric) => metric.available,
+            )) ...[
+              _SheetSectionHeading(
+                mode == TrackingMode.business
+                    ? 'Business performance'
+                    : 'Clinic operations',
+              ),
+              ...dashboard.modeDetail.metrics.entries
+                  .where((entry) => entry.value.available)
+                  .map(
+                    (entry) => _SheetDetailLine(
+                      label: _modeMetricLabel(entry.key),
+                      value: _formatAggregateValue(
+                        entry.key,
+                        entry.value.value,
+                        dashboard.financialMetrics.currency,
+                      ),
+                      detail:
+                          'Organization aggregate from the latest source snapshot.',
+                    ),
+                  ),
+              const SizedBox(height: 20),
+            ],
+            if (dashboard.operationalMetrics.health.available) ...[
+              const _SheetSectionHeading('Source application health'),
+              ...dashboard.operationalMetrics.health.metrics.entries.map(
+                (entry) => _SheetDetailLine(
+                  label: _healthMetricLabel(entry.key),
+                  value: _formatHealthValue(entry.value),
+                ),
+              ),
+              const SizedBox(height: 20),
+            ],
             const _SheetSectionHeading('Portfolio context'),
             const _SheetDetailLine(
               label: 'Staff and finance',
@@ -2138,15 +2292,122 @@ String _modeMetricLabel(String key) {
     'ordersToday' => 'Orders today',
     'averageOrderValue' => 'Average order value',
     'lowStockItems' => 'Low-stock items',
+    'inventoryUnits' => 'Inventory units',
     'inventoryValue' => 'Inventory value',
     'returnsToday' => 'Returns today',
+    'refundsToday' => 'Refunds today',
+    'damageUnitsToday' => 'Damaged units today',
     'appointmentsToday' => 'Appointments today',
     'waitingCount' => 'Aggregate waiting count',
     'completedSessionsToday' => 'Completed-session count',
     'followUpsDue' => 'Follow-ups due',
     'collectionsToday' => 'Collections today',
     'outstandingInsurance' => 'Outstanding insurance',
+    'openSessions' => 'Open sessions',
+    'activeAccounts' => 'Active clinic accounts',
     _ => 'This operational metric',
+  };
+}
+
+String _sourceFinancialLabel(String key, TrackingMode mode) {
+  return switch (key) {
+    'revenueToday' =>
+      mode == TrackingMode.clinic ? 'Collections today' : 'Sales today',
+    'averageOrderValue' => 'Average order value',
+    'inventoryValue' => 'Inventory value',
+    'refundsToday' => 'Refunds today',
+    'outstandingBalance' => 'Outstanding insurance',
+    _ => _modeMetricLabel(key),
+  };
+}
+
+String _formatAggregateValue(String key, Object? value, String? currency) {
+  if (value == null) return 'Unavailable';
+  const moneyKeys = {
+    'salesToday',
+    'averageOrderValue',
+    'inventoryValue',
+    'refundsToday',
+    'collectionsToday',
+    'outstandingInsurance',
+    'revenueToday',
+    'outstandingBalance',
+  };
+  if (moneyKeys.contains(key) && value is num) {
+    final symbol = currency == 'ILS' || currency == null ? '₪' : currency;
+    return '$symbol${value.toStringAsFixed(2)}';
+  }
+  if (value is num) return value.toString();
+  if (value is bool) return value ? 'Healthy' : 'Needs attention';
+  if (value is String && value.trim().isNotEmpty) return value;
+  return 'Unavailable';
+}
+
+Set<String> _operatingMetricKeys(TrackingMode mode) {
+  return switch (mode) {
+    TrackingMode.business => const {
+      'salesToday',
+      'ordersToday',
+      'averageOrderValue',
+      'lowStockItems',
+      'inventoryUnits',
+      'inventoryValue',
+      'returnsToday',
+      'refundsToday',
+      'damageUnitsToday',
+    },
+    TrackingMode.clinic => const {
+      'appointmentsToday',
+      'waitingCount',
+      'completedSessionsToday',
+      'followUpsDue',
+      'collectionsToday',
+      'outstandingInsurance',
+      'openSessions',
+      'activeAccounts',
+    },
+  };
+}
+
+String _healthMetricLabel(String key) {
+  return switch (key) {
+    'terminalCount' => 'Registered terminals',
+    'activeTerminalCount' => 'Active terminals',
+    'pendingSyncCount' => 'Pending synchronizations',
+    'failedSyncCount' => 'Failed synchronizations',
+    'databaseHealthy' => 'Database health',
+    'syncHealthy' => 'Synchronization health',
+    'backupHealthy' => 'Backup health',
+    _ => 'Source health',
+  };
+}
+
+String _formatHealthValue(Object value) {
+  if (value is bool) return value ? 'Healthy' : 'Needs attention';
+  return '$value';
+}
+
+String _eventCounterLabel(String key) {
+  return switch (key) {
+    'auditEvents' => 'Audited events',
+    'warningEvents' => 'Warnings',
+    'errorEvents' => 'Errors',
+    'loginsSucceeded' => 'Successful sign-ins',
+    'loginsFailed' => 'Failed sign-ins',
+    'syncsSucceeded' => 'Successful synchronizations',
+    'syncsFailed' => 'Failed synchronizations',
+    'backupsSucceeded' => 'Successful backups',
+    'backupsFailed' => 'Failed backups',
+    'salesCompleted' => 'Completed sales',
+    'salesVoided' => 'Voided sales',
+    'returnsCompleted' => 'Completed returns',
+    'inventoryAdjustments' => 'Inventory adjustments',
+    'appointmentsCreated' => 'Appointments created',
+    'appointmentsCancelled' => 'Appointments cancelled',
+    'sessionsCompleted' => 'Sessions completed',
+    'paymentsRecorded' => 'Payments recorded',
+    'followUpsCreated' => 'Follow-ups created',
+    _ => 'Operational events',
   };
 }
 

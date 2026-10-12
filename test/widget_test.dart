@@ -14,6 +14,10 @@ void main() {
     expect(find.text('RTS Tracking'), findsOneWidget);
     expect(find.text('Today'), findsWidgets);
     expect(find.text('Decisions to make'), findsOneWidget);
+    expect(find.text('Business performance'), findsOneWidget);
+    expect(find.text('Financial position'), findsOneWidget);
+    expect(find.text('System and account health'), findsOneWidget);
+    expect(find.text('Damaged units today'), findsOneWidget);
     expect(find.text('Demo data'), findsOneWidget);
     expect(find.text('Not available yet'), findsOneWidget);
 
@@ -23,6 +27,8 @@ void main() {
     expect(find.text('Snapshot freshness'), findsOneWidget);
 
     await _selectTab(tester, 'Activity');
+    expect(find.text('Aggregate activity totals'), findsOneWidget);
+    expect(find.text('Completed sales'), findsOneWidget);
     expect(find.byKey(const Key('activity-search')), findsOneWidget);
     expect(find.text('Timeline'), findsOneWidget);
 
@@ -47,6 +53,9 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Aggregate waiting count'), findsOneWidget);
+    expect(find.text('Clinic operations'), findsOneWidget);
+    expect(find.text('Outstanding insurance'), findsWidgets);
+    expect(find.text('Open sessions'), findsOneWidget);
     expect(find.text('Sales today'), findsNothing);
 
     await _selectTab(tester, 'Activity');
@@ -76,14 +85,13 @@ void main() {
     expect(find.text('Location details'), findsOneWidget);
     expect(find.text('Status and freshness'), findsOneWidget);
     expect(find.text('Licence and access'), findsOneWidget);
-    await tester.drag(
-      find.byKey(const Key('location-details-scroll')),
-      const Offset(0, -360),
-    );
-    await tester.pumpAndSettle();
-    await tester.drag(
-      find.byKey(const Key('location-details-scroll')),
-      const Offset(0, -360),
+    await tester.scrollUntilVisible(
+      find.text('Portfolio context'),
+      420,
+      scrollable: find.descendant(
+        of: find.byKey(const Key('location-details-scroll')),
+        matching: find.byType(Scrollable),
+      ),
     );
     await tester.pumpAndSettle();
     expect(find.text('Portfolio context'), findsOneWidget);
